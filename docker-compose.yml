@@ -1,0 +1,62 @@
+# Docker Compose wires together the two containers students need:
+#   1) ros2 -> runs ROS 2 Humble, rosbridge (port 9090), and the button_listener node
+#   2) web  -> runs the React + Vite dev server (port 5173)
+#
+# Students never install ROS, Node, or rosbridge locally. Everything lives here.
+
+services:
+  # ---------------------------------------------------------------------------
+  # ROS 2 container: builds the workspace, starts rosbridge, runs the listener
+  # ---------------------------------------------------------------------------
+  ros2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ros2_react_starter_ros
+    ports:
+      # rosbridge WebSocket. The React GUI connects here (ws://localhost:9090).
+      - "9090:9090"
+    volumes:
+      # Mount the ROS 2 workspace so host edits are reflected in the container.
+      - ./ros2_ws:/ros2_ws
+    # This single command does everything needed to bring ROS 2 online:
+    #   1. source the base ROS 2 install
+    #   2. build the workspace with colcon
+    #   3. source the freshly built workspace
+    #   4. start rosbridge in the BACKGROUND (note the trailing &)
+    #   5. start our button_listener node in the FOREGROUND (keeps container alive)
+    #
+    # Backgrounding rosbridge with `&` lets both processes run from one command.
+    # The listener runs in the foreground so Docker keeps the container running
+    # and streams its logs to `docker compose up`.
+    command: >
+      bash -c "source /opt/ros/humble/setup.bash &&
+      cd /ros2_ws &&
+      colcon build --symlink-install &&
+      source install/setup.bash &&
+      (ros2 launch rosbridge_server rosbridge_websocket_launch.xml &) &&
+      sleep 5 &&
+      ros2 run button_listener_pkg button_listener"
+
+  # ---------------------------------------------------------------------------
+  # Web container: React + Vite dev server
+  # ---------------------------------------------------------------------------
+  web:
+    image: node:20-alpine
+    container_name: ros2_react_starter_web
+    working_dir: /app
+    volumes:
+      # Mount the React app so host edits hot-reload in the browser.
+      - ./web_gui:/app
+    ports:
+      # Vite dev server. Open http://localhost:5173 in your browser.
+      - "5173:5173"
+    environment:
+      # The React app reads this to know where rosbridge lives.
+      # The browser runs on the HOST, so it uses localhost (mapped to the ros2 container).
+      - VITE_ROSBRIDGE_URL=ws://localhost:9090
+    # Install dependencies then start Vite, binding to 0.0.0.0 so the dev
+    # server is reachable from outside the container (i.e. your browser).
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - ros2

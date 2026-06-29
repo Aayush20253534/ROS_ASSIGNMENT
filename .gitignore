@@ -1,0 +1,15 @@
+# ROS 2 build artifacts
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Node / React
+web_gui/node_modules/
+web_gui/dist/
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# Python
+__pycache__/

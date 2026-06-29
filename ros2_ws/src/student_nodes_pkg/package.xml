@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>student_nodes_pkg</name>
+  <version>0.0.1</version>
+  <description>
+    THIS IS YOUR PACKAGE. Add your own ROS 2 nodes here.
+
+    It ships with one example node (example_publisher) that publishes text to
+    a topic. Because rosbridge exposes every topic to the browser, anything you
+    publish here can be read by the React GUI. Copy the example, rename it, and
+    register it in setup.py to create your own nodes.
+  </description>
+  <maintainer email="student@example.com">student</maintainer>
+  <license>MIT</license>
+
+  <!-- ament_python is the build type for pure-Python ROS 2 packages. -->
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Runtime dependencies. -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <!-- We import topic names from the shared gui_interface package. -->
+  <exec_depend>gui_interface</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
