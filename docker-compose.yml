@@ -52,9 +52,12 @@ services:
       # Vite dev server. Open http://localhost:5173 in your browser.
       - "5173:5173"
     environment:
-      # The React app reads this to know where rosbridge lives.
-      # The browser runs on the HOST, so it uses localhost (mapped to the ros2 container).
-      - VITE_ROSBRIDGE_URL=ws://localhost:9090
+      # The React GUI connects to rosbridge through a same-origin "/rosbridge"
+      # WebSocket that the Vite dev server proxies to this target. Because the
+      # ros2 service is reachable on the Docker network by name, this works both
+      # locally AND in GitHub Codespaces (where the browser can only reach the
+      # forwarded 5173 origin, not a separate 9090 port). See web_gui/vite.config.js.
+      - VITE_ROSBRIDGE_PROXY_TARGET=ws://ros2:9090
     # Install dependencies then start Vite, binding to 0.0.0.0 so the dev
     # server is reachable from outside the container (i.e. your browser).
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"

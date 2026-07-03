@@ -186,7 +186,7 @@ Once the basic demo works, try extending it. Each level builds on the previous o
 **Port 9090 already in use**
 - Another program (or a previous container) is using rosbridge's port.
 - Stop it, or change the host port mapping in `docker-compose.yml` (e.g. `"9091:9090"`)
-  and update `VITE_ROSBRIDGE_URL` to match.
+  and update `VITE_ROSBRIDGE_PROXY_TARGET` to match.
 
 **Port 5173 already in use**
 - The Vite dev server port is taken. Stop the other process, or change the
