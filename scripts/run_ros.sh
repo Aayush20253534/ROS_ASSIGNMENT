@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run_ros.sh - build the ROS 2 workspace and start rosbridge + the listener.
+# run_ros.sh - build the workspace and start the complete ROS 2 demo.
 #
 # Works both inside a Codespace / Dev Container and any machine with ROS 2
 # Humble installed. Mirrors what docker-compose.yml does for the local flow.
@@ -22,6 +22,15 @@ source install/setup.bash
 
 echo "==> Starting rosbridge websocket server (background, port 9090)"
 ros2 launch rosbridge_server rosbridge_websocket_launch.xml &
+
+# Stop every background process started by this script when the task exits.
+trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+
+echo "==> Starting fake temperature publisher (background)"
+ros2 run student_nodes_pkg temperature_publisher &
+
+echo "==> Starting CSV temperature recorder (background)"
+ros2 run student_nodes_pkg temperature_recorder &
 
 # Give rosbridge a moment to come up before starting the node.
 sleep 5

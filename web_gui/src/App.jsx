@@ -1,27 +1,16 @@
-// App.jsx
-//
-// This React component connects to ROS 2 through rosbridge using roslibjs,
-// then publishes a std_msgs/String message to the /button_press topic every
-// time the user clicks the button.
-//
-// Data flow reminder:
-//   This component (roslibjs / WebSocket)
-//     -> rosbridge_server (ws://localhost:9090)
-//     -> ROS 2 topic /button_press
-//     -> the Python button_listener node
-//
-// For students: ROSLIB is the browser library that speaks the rosbridge
-// protocol. A "Topic" object is how we publish/subscribe from JavaScript.
-
 import { useEffect, useRef, useState } from 'react';
 import ROSLIB from 'roslib';
+import './App.css';
 
-// The rosbridge URL comes from a Vite environment variable (set in
-// docker-compose.yml for the local flow). If it is missing (e.g. in GitHub
-// Codespaces), we connect to "/rosbridge" on THIS same origin. The Vite dev
-// server proxies that WebSocket to rosbridge (see web_gui/vite.config.js), so
-// the browser only ever talks to the already-authenticated 5173 origin and we
-// never have to expose port 9090 publicly.
+// Keep these strings identical to gui_interface/topics.py. JavaScript cannot
+// import the Python constants, so TOPICS.md documents the shared contract.
+const TOPICS = {
+  buttonPress: '/button_press',
+  temperature: '/sensor/temperature',
+  recorderCommand: '/recorder/command',
+  recorderStatus: '/recorder/status',
+};
+
 function defaultRosbridgeUrl() {
   if (typeof window !== 'undefined' && window.location) {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -33,141 +22,213 @@ function defaultRosbridgeUrl() {
 const ROSBRIDGE_URL =
   import.meta.env.VITE_ROSBRIDGE_URL || defaultRosbridgeUrl();
 
-export default function App() {
-  // Connection status shown to the user: 'connected' | 'disconnected' | 'error'
-  const [status, setStatus] = useState('disconnected');
-  // How many times the button has been clicked.
-  const [clickCount, setClickCount] = useState(0);
+function ConnectionBadge({ status }) {
+  const labels = {
+    connected: 'Connected to ROS 2',
+    disconnected: 'Disconnected',
+    error: 'Connection error',
+  };
 
-  // We keep the ROS connection and the Topic object in refs so they survive
-  // re-renders without being re-created.
-  const rosRef = useRef(null);
-  const topicRef = useRef(null);
+  return (
+    <span className={`status-badge status-badge--${status}`} role="status">
+      <span className="status-dot" aria-hidden="true" />
+      {labels[status]}
+    </span>
+  );
+}
+
+export default function App() {
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [messageCount, setMessageCount] = useState(0);
+  const [temperature, setTemperature] = useState(null);
+  const [sampleCount, setSampleCount] = useState(0);
+  const [recorderState, setRecorderState] = useState('idle');
+  const [recordedCount, setRecordedCount] = useState(0);
+  const [lastAction, setLastAction] = useState('Waiting for your first command');
+
+  const buttonTopicRef = useRef(null);
+  const commandTopicRef = useRef(null);
+  const messageCountRef = useRef(0);
 
   useEffect(() => {
-    // 1. Create the connection to rosbridge.
     const ros = new ROSLIB.Ros({ url: ROSBRIDGE_URL });
-    rosRef.current = ros;
+    let reconnectTimer = null;
+    let componentIsMounted = true;
 
-    // 2. React to connection lifecycle events.
-    ros.on('connection', () => setStatus('connected'));
-    ros.on('error', () => setStatus('error'));
-    ros.on('close', () => setStatus('disconnected'));
+    ros.on('connection', () => {
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      setConnectionStatus('connected');
+    });
+    ros.on('error', () => setConnectionStatus('error'));
+    ros.on('close', () => {
+      if (!componentIsMounted) return;
+      setConnectionStatus('disconnected');
+      reconnectTimer = window.setTimeout(() => ros.connect(ROSBRIDGE_URL), 2000);
+    });
 
-    // 3. Describe the topic we want to publish on. This MUST match the topic
-    //    name and message type that the Python node subscribes to.
-    topicRef.current = new ROSLIB.Topic({
+    const buttonTopic = new ROSLIB.Topic({
       ros,
-      name: '/button_press',
+      name: TOPICS.buttonPress,
+      messageType: 'std_msgs/String',
+    });
+    const commandTopic = new ROSLIB.Topic({
+      ros,
+      name: TOPICS.recorderCommand,
+      messageType: 'std_msgs/String',
+    });
+    const temperatureTopic = new ROSLIB.Topic({
+      ros,
+      name: TOPICS.temperature,
+      messageType: 'std_msgs/Float32',
+    });
+    const recorderStatusTopic = new ROSLIB.Topic({
+      ros,
+      name: TOPICS.recorderStatus,
       messageType: 'std_msgs/String',
     });
 
-    // Clean up the connection when the component unmounts.
-    return () => ros.close();
-  }, []);
+    buttonTopicRef.current = buttonTopic;
+    commandTopicRef.current = commandTopic;
 
-  // Called when the user clicks the button.
-  const handleClick = () => {
-    const nextCount = clickCount + 1;
-    setClickCount(nextCount);
-
-    // Build a std_msgs/String message. The single field is `data`.
-    const message = new ROSLIB.Message({
-      data: `Button clicked from React GUI. Count = ${nextCount}`,
+    temperatureTopic.subscribe((message) => {
+      setTemperature(Number(message.data));
+      setSampleCount((current) => current + 1);
     });
 
-    // Publish it to /button_press. rosbridge forwards it into ROS 2.
-    if (topicRef.current) {
-      topicRef.current.publish(message);
-    }
+    recorderStatusTopic.subscribe((message) => {
+      const [nextState, count = '0'] = String(message.data).split(':');
+      setRecorderState(nextState === 'recording' ? 'recording' : 'idle');
+      setRecordedCount(Number.parseInt(count, 10) || 0);
+    });
+
+    return () => {
+      componentIsMounted = false;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      temperatureTopic.unsubscribe();
+      recorderStatusTopic.unsubscribe();
+      buttonTopicRef.current = null;
+      commandTopicRef.current = null;
+      ros.close();
+    };
+  }, []);
+
+  const publishButtonEvent = (label) => {
+    if (connectionStatus !== 'connected' || !buttonTopicRef.current) return;
+
+    const nextCount = messageCountRef.current + 1;
+    messageCountRef.current = nextCount;
+    setMessageCount(nextCount);
+    buttonTopicRef.current.publish(
+      new ROSLIB.Message({
+        data: `${label} from React GUI. Count = ${nextCount}`,
+      }),
+    );
+    setLastAction(label);
   };
 
-  // --- Simple inline styles (no Tailwind, beginner-friendly) ----------------
-  const styles = {
-    page: {
-      fontFamily: 'system-ui, Arial, sans-serif',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      backgroundColor: '#f4f6f8',
-      color: '#1a1a1a',
-      margin: 0,
-    },
-    card: {
-      backgroundColor: '#ffffff',
-      padding: '2.5rem',
-      borderRadius: '12px',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-      textAlign: 'center',
-      maxWidth: '420px',
-      width: '90%',
-    },
-    title: { marginTop: 0, fontSize: '1.5rem' },
-    status: {
-      display: 'inline-block',
-      padding: '0.4rem 0.9rem',
-      borderRadius: '999px',
-      fontWeight: 600,
-      fontSize: '0.9rem',
-      marginBottom: '1.5rem',
-      color: '#ffffff',
-      backgroundColor:
-        status === 'connected'
-          ? '#22a06b'
-          : status === 'error'
-          ? '#d9480f'
-          : '#868e96',
-    },
-    button: {
-      fontSize: '1rem',
-      fontWeight: 600,
-      padding: '0.9rem 1.5rem',
-      border: 'none',
-      borderRadius: '8px',
-      backgroundColor: status === 'connected' ? '#1971c2' : '#adb5bd',
-      color: '#ffffff',
-      cursor: status === 'connected' ? 'pointer' : 'not-allowed',
-      transition: 'background-color 0.2s',
-    },
-    count: { marginTop: '1.25rem', fontSize: '0.95rem', color: '#495057' },
-    hint: { marginTop: '1.5rem', fontSize: '0.8rem', color: '#868e96' },
+  const sendRecorderCommand = (command, label) => {
+    if (connectionStatus !== 'connected' || !commandTopicRef.current) return;
+
+    publishButtonEvent(label);
+    commandTopicRef.current.publish(new ROSLIB.Message({ data: command }));
   };
 
-  // Human-readable status text.
-  const statusText =
-    status === 'connected'
-      ? 'Connected to ROS 2'
-      : status === 'error'
-      ? 'Connection error'
-      : 'Disconnected';
+  const isConnected = connectionStatus === 'connected';
+  const temperatureText =
+    temperature === null || Number.isNaN(temperature)
+      ? '--.--'
+      : temperature.toFixed(2);
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>ROS 2 + React Starter</h1>
+    <main className="app-shell">
+      <section className="dashboard" aria-labelledby="page-title">
+        <header className="dashboard-header">
+          <div>
+            <p className="eyebrow">Browser ↔ rosbridge ↔ ROS 2</p>
+            <h1 id="page-title">ROS 2 Sensor Console</h1>
+            <p className="subtitle">
+              Publish commands, watch a live topic, and record readings to CSV.
+            </p>
+          </div>
+          <ConnectionBadge status={connectionStatus} />
+        </header>
 
-        <div style={styles.status}>{statusText}</div>
+        <div className="metrics-grid">
+          <article className="metric-card metric-card--temperature">
+            <span className="metric-label">Live temperature</span>
+            <div className="temperature-value">
+              {temperatureText}<span>°C</span>
+            </div>
+            <span className="metric-detail">
+              {sampleCount.toLocaleString()} samples received
+            </span>
+          </article>
 
-        <div>
-          <button
-            style={styles.button}
-            onClick={handleClick}
-            disabled={status !== 'connected'}
-          >
-            Send Message to ROS
-          </button>
+          <article className="metric-card">
+            <span className="metric-label">CSV recorder</span>
+            <strong className={`recorder-state recorder-state--${recorderState}`}>
+              {recorderState === 'recording' ? 'Recording' : 'Idle'}
+            </strong>
+            <span className="metric-detail">
+              {recordedCount.toLocaleString()} rows this session
+            </span>
+          </article>
+
+          <article className="metric-card">
+            <span className="metric-label">GUI events sent</span>
+            <strong className="event-count">{messageCount}</strong>
+            <span className="metric-detail">Topic: {TOPICS.buttonPress}</span>
+          </article>
         </div>
 
-        <div style={styles.count}>Messages sent: {clickCount}</div>
+        <section className="controls-card" aria-labelledby="controls-title">
+          <div className="section-heading">
+            <div>
+              <h2 id="controls-title">Controls</h2>
+              <p>Each control is also logged by the button listener node.</p>
+            </div>
+            <span className="last-action">Last: {lastAction}</span>
+          </div>
 
-        <div style={styles.hint}>
-          Publishing <code>std_msgs/String</code> to <code>/button_press</code>
-          <br />
-          rosbridge: <code>{ROSBRIDGE_URL}</code>
-        </div>
-      </div>
-    </div>
+          <div className="button-grid">
+            <button
+              className="action-button action-button--primary"
+              onClick={() => publishButtonEvent('Test message sent')}
+              disabled={!isConnected}
+            >
+              Send test message
+            </button>
+            <button
+              className="action-button action-button--start"
+              onClick={() => sendRecorderCommand('start', 'Recording started')}
+              disabled={!isConnected || recorderState === 'recording'}
+            >
+              Start recording
+            </button>
+            <button
+              className="action-button action-button--stop"
+              onClick={() => sendRecorderCommand('stop', 'Recording stopped')}
+              disabled={!isConnected || recorderState !== 'recording'}
+            >
+              Stop recording
+            </button>
+            <button
+              className="action-button action-button--reset"
+              onClick={() => sendRecorderCommand('reset', 'CSV reset')}
+              disabled={!isConnected}
+            >
+              Reset CSV
+            </button>
+          </div>
+        </section>
+
+        <footer className="connection-note">
+          <span>rosbridge</span>
+          <code>{ROSBRIDGE_URL}</code>
+          <span>sensor topic</span>
+          <code>{TOPICS.temperature}</code>
+        </footer>
+      </section>
+    </main>
   );
 }

@@ -29,6 +29,18 @@ Convention for second-year students:
 # Message type: std_msgs/String
 TOPIC_BUTTON_PRESS = '/button_press'
 
+# Fake temperature readings produced by temperature_publisher.
+# Message type: std_msgs/Float32
+TOPIC_SENSOR_TEMPERATURE = '/sensor/temperature'
+
+# React recording controls -> temperature_recorder.
+# Message type: std_msgs/String (start | stop | reset)
+TOPIC_RECORDER_COMMAND = '/recorder/command'
+
+# temperature_recorder -> React recording status display.
+# Message type: std_msgs/String
+TOPIC_RECORDER_STATUS = '/recorder/status'
+
 
 # ---------------------------------------------------------------------------
 # Add YOUR topics below. Example (uncomment and adapt):

@@ -24,6 +24,9 @@ React GUI  <--roslibjs/WebSocket-->  rosbridge_server (:9090)  <-->  ROS 2 topic
 |-------|--------------|--------------|---------------|-------|
 | `/button_press` | `std_msgs/String` | React GUI (`web_gui/src/App.jsx`) | `button_listener` (`button_listener_pkg`) | Sent on every button click. |
 | `/robot_status` | `std_msgs/String` | `example_publisher` (`student_nodes_pkg`) | React GUI (optional) | Demo: a node publishing up to the GUI once per second. |
+| `/sensor/temperature` | `std_msgs/Float32` | `temperature_publisher` (`student_nodes_pkg`) | React GUI and `temperature_recorder` | Fake Celsius reading published at 4 Hz. |
+| `/recorder/command` | `std_msgs/String` | React GUI | `temperature_recorder` | Commands: `start`, `stop`, or `reset`. |
+| `/recorder/status` | `std_msgs/String` | `temperature_recorder` | React GUI | State and row count in `state:count` format. |
 
 ## Adding a new topic — checklist
 
