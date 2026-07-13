@@ -6,10 +6,11 @@
   <description>
     THIS IS YOUR PACKAGE. Add your own ROS 2 nodes here.
 
-    It ships with a text publisher example, a fake temperature sensor, and a
-    CSV recorder. Because rosbridge exposes every topic to the browser, anything
-    published here can be read by the React GUI. Copy an example, rename it,
-    and register it in setup.py to create your own nodes.
+    It ships with a text publisher example, a fake temperature sensor, a
+    telemetry CSV recorder, and an authoritative simulated vehicle. Because
+    rosbridge exposes every topic to the browser, anything published here can
+    be read by the React GUI. Copy an example, rename it, and register it in
+    setup.py to create your own nodes.
   </description>
   <maintainer email="student@example.com">student</maintainer>
   <license>MIT</license>

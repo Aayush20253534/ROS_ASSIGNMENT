@@ -17,7 +17,8 @@ src/
     └── student_nodes_pkg/
         ├── example_publisher.py       (example: ROS -> GUI)
         ├── temperature_publisher.py   (fake Float32 sensor)
-        └── temperature_recorder.py    (command-controlled CSV writer)
+        ├── temperature_recorder.py    (all-telemetry CSV writer)
+        └── simulated_vehicle_node.py  (authoritative SDC simulator)
 ```
 
 ## Which file does what
@@ -56,10 +57,16 @@ them yourself after building and sourcing the workspace:
 ```bash
 ros2 run student_nodes_pkg temperature_publisher
 ros2 run student_nodes_pkg temperature_recorder
+ros2 run student_nodes_pkg simulated_vehicle
 ```
 
 The GUI publishes `start`, `stop`, and `reset` on `/recorder/command`. Recorded
-rows are written to `ros2_ws/data/temperature_readings.csv`.
+rows are written to `ros2_ws/data/temperature_readings.csv`. Each row contains
+timestamp, temperature, speed, steering, battery, and vehicle status.
+
+The GUI publishes the exact commands documented in `TOPICS.md` on
+`/sdc/command`. `simulated_vehicle` validates them, updates smooth vehicle
+dynamics on a ROS timer, and publishes the authoritative result back to React.
 
 ## Adding multiple nodes in one package
 

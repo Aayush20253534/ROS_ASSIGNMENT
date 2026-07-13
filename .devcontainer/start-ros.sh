@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# start-ros.sh - starts rosbridge and all three demo nodes automatically.
+# start-ros.sh - starts rosbridge and all four demo nodes automatically.
 #
 # Wired to "postStartCommand" in devcontainer.json so that every time the
 # Codespace / Dev Container starts, rosbridge is already listening on port 9090
@@ -21,12 +21,10 @@ source /opt/ros/humble/setup.bash
 
 cd "${REPO_ROOT}/ros2_ws"
 
-# Build the workspace if it has not been built yet (post-create usually does
-# this, but this guard makes startup robust after a fresh rebuild).
-if [ ! -f install/setup.bash ]; then
-  echo "==> [start-ros] Workspace not built yet; building with colcon"
-  colcon build --symlink-install
-fi
+# Keep installed console scripts current after a pull or file edit. Colcon is
+# incremental, so an unchanged workspace completes quickly.
+echo "==> [start-ros] Ensuring the ROS workspace is current"
+colcon build --symlink-install
 
 # shellcheck disable=SC1091
 source install/setup.bash
@@ -69,6 +67,15 @@ else
   echo "==> [start-ros] Starting temperature_recorder node"
   nohup ros2 run student_nodes_pkg temperature_recorder \
     > /tmp/ros-logs/temperature_recorder.log 2>&1 &
+fi
+
+# Run the authoritative state and telemetry simulation for the SDC dashboard.
+if pgrep -f simulated_vehicle >/dev/null 2>&1; then
+  echo "==> [start-ros] simulated_vehicle already running"
+else
+  echo "==> [start-ros] Starting simulated_vehicle node"
+  nohup ros2 run student_nodes_pkg simulated_vehicle \
+    > /tmp/ros-logs/simulated_vehicle.log 2>&1 &
 fi
 
 echo "==> [start-ros] Done. rosbridge + all demo nodes are running."

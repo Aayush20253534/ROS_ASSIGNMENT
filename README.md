@@ -1,217 +1,352 @@
-# ros2-react-starter
+# ROS 2 + React Simulated SDC Dashboard
 
-A beginner-friendly project that connects a **React web GUI** to **ROS 2
-Humble**. Send commands from the browser, watch a live fake sensor, and record
-its readings to CSV — all inside Docker, with **no local ROS installation
-required**.
+A beginner-friendly **React + ROS 2 Humble** project that demonstrates a real
+browser-to-ROS topic flow. The dashboard controls an authoritative simulated
+self-driving car, displays live telemetry and ROS events, and records every
+telemetry value to CSV. Everything runs in Docker; no local ROS installation is
+required.
 
-## What this starter demonstrates
+## Features
 
-- How a web app can talk to ROS 2 using **rosbridge** + **roslibjs** over WebSockets.
-- How to publish a ROS 2 message (`std_msgs/String`) from JavaScript.
-- How a ROS 2 Python node (`rclpy`) subscribes to a topic and reacts to messages.
-- How a Python node publishes `std_msgs/Float32` data for a live React display.
-- How browser commands can start, stop, and reset a ROS-side CSV recorder.
-- How Docker Compose can package ROS 2 + a web dev server so students run **one command**.
+- React connects to ROS 2 through **roslibjs**, **rosbridge**, and WebSockets.
+- ROS-confirmed states: `IDLE`, `RUNNING`, `STOPPED`, and `EMERGENCY_STOP`.
+- Start, stop, accelerate, brake, steering, emergency-stop, and reset controls.
+- Smooth ROS-generated speed and steering values—React does not fake telemetry.
+- Simulated temperature and slowly decreasing vehicle battery.
+- Live ROS event log retaining the latest 50 received events.
+- Start, stop, and reset controls for an all-telemetry CSV recorder.
+- Docker Desktop and GitHub Codespaces one-command startup paths.
 
 ## Architecture
 
 ```text
-React GUI  <-- WebSocket / roslibjs -->  rosbridge_server  <-->  ROS 2
-   │                                                      ├─ button_listener
-   │                                                      ├─ temperature_publisher
-   └─ commands + live temperature + recorder status       └─ temperature_recorder → CSV
+React dashboard
+  │ publish commands / subscribe to telemetry
+  ▼
+roslibjs ── WebSocket /rosbridge ──► rosbridge_server
+                                          │
+                                          ▼
+                                    ROS 2 topic graph
+                                      ├─ button_listener
+                                      ├─ temperature_publisher
+                                      ├─ simulated_vehicle
+                                      └─ temperature_recorder ──► CSV
 ```
+
+Vehicle controls follow this complete path:
+
+```text
+React button → /sdc/command → simulated_vehicle → status + telemetry + events → React
+```
+
+The displayed vehicle state is never guessed from a local click. It always
+comes back from ROS on `/sdc/status` after validation.
 
 ## Prerequisites
 
-- **Docker Desktop** (required) — installs Docker Engine + Docker Compose.
-  - Download: https://www.docker.com/products/docker-desktop/
-- **Git** — to clone the repository.
-- **VS Code** (optional) — a nice editor for exploring the code.
-- **No local ROS 2 install required.** Everything runs inside containers.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the
+  Linux engine running
+- Git
+- VS Code (optional)
 
-## How to run
+No local Node.js or ROS 2 installation is required for the Docker workflow.
 
-```bash
-# 1. Clone the repository
-git clone <your-repo-url> ros2-react-starter
-cd ros2-react-starter
+## Run locally with Docker
 
-# 2. Start everything (builds the ROS image on first run)
-#    macOS / Linux:
-./start.sh
-#    Windows:
-start.bat
+### Windows PowerShell
 
-# 3. Open the GUI in your browser
-#    http://localhost:5173
-
-# 4. Watch the live temperature, then try the message and recorder controls.
+```powershell
+git clone <your-repo-url> ROS_ASSIGNMENT
+cd ROS_ASSIGNMENT
+.\start.bat
 ```
 
-> The **first run takes several minutes** because Docker downloads the ROS 2
-> image and installs dependencies. Later runs are much faster.
+### Linux or macOS
+
+```bash
+git clone <your-repo-url> ROS_ASSIGNMENT
+cd ROS_ASSIGNMENT
+chmod +x start.sh
+./start.sh
+```
+
+The equivalent direct command on every platform is:
+
+```bash
+docker compose up --build
+```
+
+The first run takes several minutes while Docker downloads ROS 2 and installs
+dependencies. Keep the terminal open, then visit:
+
+```text
+http://localhost:5173
+```
+
+Stop the project with `Ctrl+C`, followed by:
+
+```bash
+docker compose down
+```
 
 ## GitHub Codespaces
 
-Prefer to run everything in the cloud? This repo ships a ready-to-use
-[GitHub Codespaces](https://github.com/features/codespaces) setup. **No Docker
-Desktop, no WSL, and no local ROS installation required.**
+1. Fork the repository.
+2. Select **Code → Codespaces → Create codespace on main**.
+3. Wait for the post-create build to finish.
+4. Open forwarded port **5173**.
 
-1. On GitHub, click **Code → Codespaces → Create codespace on main**.
-2. **Wait for setup to finish.** On first launch the container builds, ROS 2
-   `ros2_ws` is compiled with colcon, and `web_gui` npm dependencies are
-   installed automatically (via `.devcontainer/post-create.sh`).
-3. **That's it — nothing else to start.** On every container start,
-   `.devcontainer/start-ros.sh` automatically launches rosbridge (port 9090)
-   and all three demo nodes in the background, while the `web` container
-   serves the Vite dev server on port 5173.
-4. Open the **forwarded port 5173** (the **Ports** tab, or the "Open in
-   Browser" toast) to use the GUI. The status badge should already read
-   **Connected to ROS 2**, and the temperature card should update live.
-5. To watch the node react to your clicks, either tail the background log
-   (`tail -f /tmp/ros-logs/button_listener.log`) or run the **Run ROS** task to
-   see the listener live in a terminal.
+`.devcontainer/start-ros.sh` automatically starts rosbridge and all four demo
+nodes. The GUI connects through the same-origin `/rosbridge` proxy, so port
+9090 does not need to be made public.
 
-> **Tip:** If the GUI shows "Disconnected", the background rosbridge may not be
-> up yet — give it a few seconds and refresh, or run the **Run ROS** task
-> manually. The GUI reaches rosbridge through a `/rosbridge` proxy on the same
-> 5173 origin, so you do **not** need to change any port visibility.
-
-The local Docker workflow above is unchanged — Codespaces support is purely
-additive (`.devcontainer/`, `.vscode/tasks.json`, and `scripts/`).
-
-## Expected output
-
-- In the **browser**, the connection badge turns green, temperature updates
-  about four times per second, and recorder controls become available.
-- Press **Start recording**, wait a moment, then press **Stop recording**. The
-  row count rises and the CSV is written to
-  `ros2_ws/data/temperature_readings.csv`.
-- In the **terminal** running `docker compose up`, the ROS 2 node logs:
-
-```
-ros2_react_starter_ros  | [INFO] [button_listener_node]: Button listener started
-ros2_react_starter_ros  | [INFO] [button_listener_node]: Waiting for messages on /button_press
-ros2_react_starter_ros  | [INFO] [temperature_publisher_node]: Fake temperature publisher started
-ros2_react_starter_ros  | [INFO] [temperature_recorder_node]: Temperature recorder started (idle)
-ros2_react_starter_ros  | [INFO] [button_listener_node]: Received: "Recording started from React GUI. Count = 1"
-```
-
-## Understanding the topics
-
-- **`/button_press`** — the ROS 2 *topic* (a named channel). The React app
-  **publishes** to it; the Python node **subscribes** to it.
-- **`std_msgs/String`** — the *message type*. It carries one text field called
-  `data`. Both the React side and the Python side must agree on this type, or
-  they cannot communicate.
-- **`/sensor/temperature`** — the fake sensor publishes `std_msgs/Float32`; the
-  React GUI and recorder both subscribe.
-- **`/recorder/command`** — React publishes `start`, `stop`, or `reset`.
-- **`/recorder/status`** — the recorder publishes its state and written-row count.
-
-## Useful debugging commands
-
-Open a shell inside the ROS 2 container and inspect topics live:
+Codespaces logs are stored under `/tmp/ros-logs/`:
 
 ```bash
-# Get a bash shell inside the running ROS 2 container
+tail -f /tmp/ros-logs/simulated_vehicle.log
+tail -f /tmp/ros-logs/temperature_recorder.log
+tail -f /tmp/ros-logs/button_listener.log
+```
+
+## Dashboard workflow
+
+1. Wait for **Connected to ROS 2** and the ROS-confirmed `IDLE` state.
+2. Click **Start vehicle**; ROS validates it and publishes `RUNNING`.
+3. Click **Accelerate** one or more times. Speed smoothly approaches the target.
+4. Use steering and braking controls and observe ROS telemetry and events.
+5. Click **Emergency stop** to lock normal controls and brake rapidly.
+6. Click **Reset vehicle** to return to `IDLE`.
+7. Start recording to save temperature and all vehicle telemetry to CSV.
+
+## Topics
+
+| Topic | Type | Direction | Purpose |
+|-------|------|-----------|---------|
+| `/button_press` | `std_msgs/msg/String` | React → ROS | Original test/control-event example. |
+| `/sensor/temperature` | `std_msgs/msg/Float32` | ROS → React/recorder | Simulated temperature at 4 Hz. |
+| `/recorder/command` | `std_msgs/msg/String` | React → ROS | `start`, `stop`, or `reset`. |
+| `/recorder/status` | `std_msgs/msg/String` | ROS → React | Recorder state and row count. |
+| `/sdc/command` | `std_msgs/msg/String` | React → ROS | Exact vehicle commands. |
+| `/sdc/status` | `std_msgs/msg/String` | ROS → React/recorder | Authoritative vehicle state. |
+| `/sdc/speed` | `std_msgs/msg/Float32` | ROS → React/recorder | Speed in km/h. |
+| `/sdc/steering` | `std_msgs/msg/Float32` | ROS → React/recorder | Steering angle in degrees. |
+| `/sdc/battery` | `std_msgs/msg/Float32` | ROS → React/recorder | Battery percentage. |
+| `/sdc/events` | `std_msgs/msg/String` | ROS → React | Human-readable vehicle/recorder events. |
+
+The Python constants are defined in
+`ros2_ws/src/gui_interface/gui_interface/topics.py`. The JavaScript mirror is
+`web_gui/src/services/rosTopics.js`. See
+[`ros2_ws/src/TOPICS.md`](ros2_ws/src/TOPICS.md) for the full topic contract.
+
+## Vehicle commands and states
+
+React publishes these exact strings to `/sdc/command`:
+
+| Command | Behaviour |
+|---------|-----------|
+| `START_VEHICLE` | Allowed from `IDLE` or `STOPPED`; enters `RUNNING`. |
+| `STOP_VEHICLE` | Smoothly reaches zero, centers steering, then enters `STOPPED`. |
+| `ACCELERATE` | Adds 10 km/h to the target, up to 80 km/h. |
+| `BRAKE` | Removes 10 km/h from the target, down to zero. |
+| `STEER_LEFT` | Moves the target left by 10°, limited to -30°. |
+| `STEER_RIGHT` | Moves the target right by 10°, limited to +30°. |
+| `CENTER_STEERING` | Smoothly returns steering to 0°. |
+| `EMERGENCY_STOP` | Enters `EMERGENCY_STOP`, locks controls, and rapidly brakes. |
+| `RESET_VEHICLE` | Returns to `IDLE` with zero speed and centered steering. |
+
+The battery remains between 0% and 100% and drains slowly only while running.
+If it reaches zero, the vehicle targets zero speed and stops. Reset preserves
+the battery value.
+
+## Telemetry recording
+
+The recorder writes four snapshots per second only while recording is active:
+
+```csv
+timestamp,temperature,speed,steering,battery,vehicle_status
+2026-07-13T16:30:21.125+00:00,22.47,18.6,-4.5,99.98,RUNNING
+```
+
+Output path:
+
+```text
+ros2_ws/data/temperature_readings.csv
+```
+
+- **Start recording:** opens the CSV and begins appending snapshots.
+- **Stop recording:** flushes and closes the file without deleting rows.
+- **Reset CSV:** safely recreates the header; active recording continues.
+
+Open it on Windows:
+
+```powershell
+notepad .\ros2_ws\data\temperature_readings.csv
+Get-Content .\ros2_ws\data\temperature_readings.csv -Wait
+```
+
+Open or follow it on Linux/macOS:
+
+```bash
+tail -f ros2_ws/data/temperature_readings.csv
+```
+
+## Inspect ROS manually
+
+Enter the running ROS container:
+
+```bash
 docker exec -it ros2_react_starter_ros bash
-
-# Inside the container, make ROS 2 commands available
 source /opt/ros/humble/setup.bash
+source /ros2_ws/install/setup.bash
+```
 
-# List all active topics
+Inspect nodes and topics:
+
+```bash
+ros2 node list
 ros2 topic list
-
-# Print messages as they arrive on /button_press
-ros2 topic echo /button_press
-
-# Watch fake sensor readings
-ros2 topic echo /sensor/temperature
+ros2 topic echo /sdc/status
+ros2 topic echo /sdc/speed
+ros2 topic echo /sdc/steering
+ros2 topic echo /sdc/battery
+ros2 topic echo /sdc/events
+ros2 topic echo /recorder/status
 ```
 
-## Where to add your own code
+Expected nodes include:
 
-The ROS 2 workspace is split into clear packages under `ros2_ws/src/`:
-
-```
-ros2_ws/src/
-├── README.md            # full guide: file roles + recipe to add nodes
-├── TOPICS.md            # central list of every topic + message type
-├── gui_interface/       # SHARED: all topic names defined once (topics.py)
-├── button_listener_pkg/ # PROVIDED EXAMPLE: a node that listens (GUI -> ROS)
-└── student_nodes_pkg/   # YOUR PACKAGE: add your own nodes here
+```text
+/button_listener_node
+/temperature_publisher_node
+/temperature_recorder_node
+/simulated_vehicle_node
+/rosbridge_websocket
 ```
 
-Students work mainly in **`student_nodes_pkg/`**. To add a node: create a
-`.py` file, register it in that package's `setup.py` under `console_scripts`,
-then rebuild. See [ros2_ws/src/README.md](ros2_ws/src/README.md) for the full
-step-by-step recipe (including when a rebuild is needed) and
-[ros2_ws/src/TOPICS.md](ros2_ws/src/TOPICS.md) for the topic reference.
+## Publish test commands manually
 
-> Because rosbridge exposes **every** ROS 2 topic to the browser, any topic you
-> create is automatically reachable by the React GUI — just subscribe/publish
-> to the same topic name on the JavaScript side.
+Run these inside the sourced ROS container:
 
-## Included extension levels
+```bash
+ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'START_VEHICLE'}"
+ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'ACCELERATE'}"
+ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'EMERGENCY_STOP'}"
+ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'RESET_VEHICLE'}"
+```
 
-- **Level 1:** Start Recording, Stop Recording, and Reset CSV buttons publish
-  distinct events that appear in the listener logs.
-- **Level 2:** `temperature_publisher` publishes fake `Float32` readings four
-  times per second.
-- **Level 3:** React subscribes to the sensor topic and renders the live value.
-- **Level 4:** `temperature_recorder` saves timestamped readings to CSV and is
-  controlled from the browser.
+Recorder tests:
 
-For another challenge, add a second sensor, plot recent readings, or expose the
-CSV through a ROS service.
+```bash
+ros2 topic pub --once /recorder/command std_msgs/msg/String "{data: 'start'}"
+ros2 topic pub --once /recorder/command std_msgs/msg/String "{data: 'stop'}"
+ros2 topic pub --once /recorder/command std_msgs/msg/String "{data: 'reset'}"
+```
+
+## Rebuild after editing
+
+Docker rebuild and restart:
+
+```bash
+docker compose down
+docker compose up --build
+```
+
+Rebuild only the ROS workspace inside the running container:
+
+```bash
+docker exec -it ros2_react_starter_ros bash
+cd /ros2_ws
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+Adding a new `console_scripts` entry requires a colcon rebuild. Editing an
+existing Python node under `--symlink-install` requires only a node restart.
+
+## View logs
+
+```bash
+docker compose ps
+docker compose logs ros2 --tail 200
+docker compose logs web --tail 100
+docker compose logs -f ros2
+```
+
+## Verification checklist
+
+- [ ] Docker starts both containers and React opens on port 5173.
+- [ ] The GUI connects and shows initial state `IDLE`.
+- [ ] The original test message reaches `button_listener`.
+- [ ] Temperature updates approximately four times per second.
+- [ ] Start changes state to `RUNNING` through `/sdc/status`.
+- [ ] Accelerate and brake change speed smoothly within 0–80 km/h.
+- [ ] Steering changes smoothly within -30° to +30°.
+- [ ] Battery decreases slowly while the vehicle is running.
+- [ ] Emergency stop locks normal controls and rapidly reduces speed.
+- [ ] Reset returns the system to `IDLE`.
+- [ ] Vehicle and recorder events appear in the live event log.
+- [ ] Start recording writes all six CSV columns.
+- [ ] Stop recording stops adding rows.
+- [ ] Reset CSV recreates only its header and resets the row count.
+- [ ] Browser refresh reconnects without duplicate event messages.
+- [ ] Docker restart brings every node back automatically.
 
 ## Troubleshooting
 
-**Docker not installed**
-- Install Docker Desktop from the link in Prerequisites, then restart your terminal.
+### Docker engine is unavailable
 
-**Docker daemon not running**
-- You'll see: `Docker is not running. Start Docker Desktop and run this script again.`
-- Open Docker Desktop, wait until it says "Running", then re-run the start script.
+Start Docker Desktop and wait until its Linux engine is running. Confirm both
+Client and Server sections appear:
 
-**React shows "Disconnected" or "Connection error"**
-- The ROS 2 container may still be building (first run is slow). Wait for the
-  `Button listener started` log, then refresh the browser.
-- Make sure rosbridge is reachable at `ws://localhost:9090`.
+```powershell
+docker version
+docker info
+```
 
-**Port 9090 already in use**
-- Another program (or a previous container) is using rosbridge's port.
-- Stop it, or change the host port mapping in `docker-compose.yml` (e.g. `"9091:9090"`)
-  and update `VITE_ROSBRIDGE_PROXY_TARGET` to match.
+### GUI shows Disconnected
 
-**Port 5173 already in use**
-- The Vite dev server port is taken. Stop the other process, or change the
-  mapping in `docker-compose.yml` (e.g. `"5174:5173"`).
+The GUI automatically retries every two seconds. The first ROS build can take
+several minutes. Check:
 
-**First run takes a long time**
-- This is normal. Docker is downloading the ROS 2 Humble image and installing
-  packages. Subsequent runs reuse the cached image and start quickly.
+```bash
+docker compose ps
+docker compose logs ros2 --tail 200
+```
+
+`ws://localhost:5173/rosbridge` is expected: Vite proxies that same-origin path
+to `ws://ros2:9090` inside Docker.
+
+### Port already in use
+
+Stop the conflicting process or change the relevant host mapping in
+`docker-compose.yml`. If changing the rosbridge target, also update
+`VITE_ROSBRIDGE_PROXY_TARGET`.
 
 ## Project structure
 
-```
-ros2-react-starter/
-├── docker/Dockerfile               # ROS 2 Humble image + rosbridge + tools
-├── ros2_ws/                        # ROS 2 workspace (colcon builds all packages)
-│   ├── data/                       # generated temperature CSV lives here
+```text
+ROS_ASSIGNMENT/
+├── .devcontainer/                 # Codespaces lifecycle scripts
+├── docker/Dockerfile              # ROS 2 Humble + rosbridge image
+├── ros2_ws/
+│   ├── data/                      # generated telemetry CSV
 │   └── src/
-│       ├── README.md               # guide: file roles + how to add nodes
-│       ├── TOPICS.md               # central list of every topic
-│       ├── gui_interface/          # shared topic-name definitions
-│       ├── button_listener_pkg/    # provided example node (GUI -> ROS)
-│       └── student_nodes_pkg/      # fake sensor, recorder, and student nodes
-├── web_gui/                        # React + Vite app
-├── docker-compose.yml              # Wires the ros2 + web containers together
-├── start.sh / start.bat            # One-command startup scripts
-└── README.md
+│       ├── gui_interface/         # shared Python topic constants
+│       ├── button_listener_pkg/   # original GUI → ROS example
+│       └── student_nodes_pkg/
+│           ├── temperature_publisher.py
+│           ├── temperature_recorder.py
+│           └── simulated_vehicle_node.py
+├── web_gui/src/
+│   ├── components/                # dashboard UI sections
+│   ├── hooks/useRosBridge.js      # one connection + topic lifecycle
+│   ├── services/rosTopics.js      # JavaScript topic contract
+│   ├── App.jsx
+│   └── App.css
+├── docker-compose.yml
+├── start.sh
+└── start.bat
 ```
 
 ## License

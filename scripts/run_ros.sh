@@ -32,6 +32,9 @@ ros2 run student_nodes_pkg temperature_publisher &
 echo "==> Starting CSV temperature recorder (background)"
 ros2 run student_nodes_pkg temperature_recorder &
 
+echo "==> Starting simulated vehicle (background)"
+ros2 run student_nodes_pkg simulated_vehicle &
+
 # Give rosbridge a moment to come up before starting the node.
 sleep 5
 

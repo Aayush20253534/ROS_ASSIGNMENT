@@ -1,0 +1,2748 @@
+diff --git a/.devcontainer/start-ros.sh b/.devcontainer/start-ros.sh
+index 12adf37..ae31db3 100644
+--- a/.devcontainer/start-ros.sh
++++ b/.devcontainer/start-ros.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ #
+-# start-ros.sh - starts rosbridge and all three demo nodes automatically.
++# start-ros.sh - starts rosbridge and all four demo nodes automatically.
+ #
+ # Wired to "postStartCommand" in devcontainer.json so that every time the
+ # Codespace / Dev Container starts, rosbridge is already listening on port 9090
+@@ -21,12 +21,10 @@ source /opt/ros/humble/setup.bash
+ 
+ cd "${REPO_ROOT}/ros2_ws"
+ 
+-# Build the workspace if it has not been built yet (post-create usually does
+-# this, but this guard makes startup robust after a fresh rebuild).
+-if [ ! -f install/setup.bash ]; then
+-  echo "==> [start-ros] Workspace not built yet; building with colcon"
+-  colcon build --symlink-install
+-fi
++# Keep installed console scripts current after a pull or file edit. Colcon is
++# incremental, so an unchanged workspace completes quickly.
++echo "==> [start-ros] Ensuring the ROS workspace is current"
++colcon build --symlink-install
+ 
+ # shellcheck disable=SC1091
+ source install/setup.bash
+@@ -71,5 +69,14 @@ else
+     > /tmp/ros-logs/temperature_recorder.log 2>&1 &
+ fi
+ 
++# Run the authoritative state and telemetry simulation for the SDC dashboard.
++if pgrep -f simulated_vehicle >/dev/null 2>&1; then
++  echo "==> [start-ros] simulated_vehicle already running"
++else
++  echo "==> [start-ros] Starting simulated_vehicle node"
++  nohup ros2 run student_nodes_pkg simulated_vehicle \
++    > /tmp/ros-logs/simulated_vehicle.log 2>&1 &
++fi
++
+ echo "==> [start-ros] Done. rosbridge + all demo nodes are running."
+ echo "==> [start-ros] Logs are available under /tmp/ros-logs/."
+diff --git a/README.md b/README.md
+index 933fe69..6abce18 100644
+--- a/README.md
++++ b/README.md
+@@ -1,217 +1,352 @@
+-# ros2-react-starter
++# ROS 2 + React Simulated SDC Dashboard
+ 
+-A beginner-friendly project that connects a **React web GUI** to **ROS 2
+-Humble**. Send commands from the browser, watch a live fake sensor, and record
+-its readings to CSV — all inside Docker, with **no local ROS installation
+-required**.
++A beginner-friendly **React + ROS 2 Humble** project that demonstrates a real
++browser-to-ROS topic flow. The dashboard controls an authoritative simulated
++self-driving car, displays live telemetry and ROS events, and records every
++telemetry value to CSV. Everything runs in Docker; no local ROS installation is
++required.
+ 
+-## What this starter demonstrates
++## Features
+ 
+-- How a web app can talk to ROS 2 using **rosbridge** + **roslibjs** over WebSockets.
+-- How to publish a ROS 2 message (`std_msgs/String`) from JavaScript.
+-- How a ROS 2 Python node (`rclpy`) subscribes to a topic and reacts to messages.
+-- How a Python node publishes `std_msgs/Float32` data for a live React display.
+-- How browser commands can start, stop, and reset a ROS-side CSV recorder.
+-- How Docker Compose can package ROS 2 + a web dev server so students run **one command**.
++- React connects to ROS 2 through **roslibjs**, **rosbridge**, and WebSockets.
++- ROS-confirmed states: `IDLE`, `RUNNING`, `STOPPED`, and `EMERGENCY_STOP`.
++- Start, stop, accelerate, brake, steering, emergency-stop, and reset controls.
++- Smooth ROS-generated speed and steering values—React does not fake telemetry.
++- Simulated temperature and slowly decreasing vehicle battery.
++- Live ROS event log retaining the latest 50 received events.
++- Start, stop, and reset controls for an all-telemetry CSV recorder.
++- Docker Desktop and GitHub Codespaces one-command startup paths.
+ 
+ ## Architecture
+ 
+ ```text
+-React GUI  <-- WebSocket / roslibjs -->  rosbridge_server  <-->  ROS 2
+-   │                                                      ├─ button_listener
+-   │                                                      ├─ temperature_publisher
+-   └─ commands + live temperature + recorder status       └─ temperature_recorder → CSV
++React dashboard
++  │ publish commands / subscribe to telemetry
++  ▼
++roslibjs ── WebSocket /rosbridge ──► rosbridge_server
++                                          │
++                                          ▼
++                                    ROS 2 topic graph
++                                      ├─ button_listener
++                                      ├─ temperature_publisher
++                                      ├─ simulated_vehicle
++                                      └─ temperature_recorder ──► CSV
+ ```
+ 
++Vehicle controls follow this complete path:
++
++```text
++React button → /sdc/command → simulated_vehicle → status + telemetry + events → React
++```
++
++The displayed vehicle state is never guessed from a local click. It always
++comes back from ROS on `/sdc/status` after validation.
++
+ ## Prerequisites
+ 
+-- **Docker Desktop** (required) — installs Docker Engine + Docker Compose.
+-  - Download: https://www.docker.com/products/docker-desktop/
+-- **Git** — to clone the repository.
+-- **VS Code** (optional) — a nice editor for exploring the code.
+-- **No local ROS 2 install required.** Everything runs inside containers.
++- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with the
++  Linux engine running
++- Git
++- VS Code (optional)
+ 
+-## How to run
++No local Node.js or ROS 2 installation is required for the Docker workflow.
+ 
+-```bash
+-# 1. Clone the repository
+-git clone <your-repo-url> ros2-react-starter
+-cd ros2-react-starter
++## Run locally with Docker
++
++### Windows PowerShell
++
++```powershell
++git clone <your-repo-url> ROS_ASSIGNMENT
++cd ROS_ASSIGNMENT
++.\start.bat
++```
+ 
+-# 2. Start everything (builds the ROS image on first run)
+-#    macOS / Linux:
++### Linux or macOS
++
++```bash
++git clone <your-repo-url> ROS_ASSIGNMENT
++cd ROS_ASSIGNMENT
++chmod +x start.sh
+ ./start.sh
+-#    Windows:
+-start.bat
++```
+ 
+-# 3. Open the GUI in your browser
+-#    http://localhost:5173
++The equivalent direct command on every platform is:
+ 
+-# 4. Watch the live temperature, then try the message and recorder controls.
++```bash
++docker compose up --build
+ ```
+ 
+-> The **first run takes several minutes** because Docker downloads the ROS 2
+-> image and installs dependencies. Later runs are much faster.
++The first run takes several minutes while Docker downloads ROS 2 and installs
++dependencies. Keep the terminal open, then visit:
++
++```text
++http://localhost:5173
++```
++
++Stop the project with `Ctrl+C`, followed by:
++
++```bash
++docker compose down
++```
+ 
+ ## GitHub Codespaces
+ 
+-Prefer to run everything in the cloud? This repo ships a ready-to-use
+-[GitHub Codespaces](https://github.com/features/codespaces) setup. **No Docker
+-Desktop, no WSL, and no local ROS installation required.**
+-
+-1. On GitHub, click **Code → Codespaces → Create codespace on main**.
+-2. **Wait for setup to finish.** On first launch the container builds, ROS 2
+-   `ros2_ws` is compiled with colcon, and `web_gui` npm dependencies are
+-   installed automatically (via `.devcontainer/post-create.sh`).
+-3. **That's it — nothing else to start.** On every container start,
+-   `.devcontainer/start-ros.sh` automatically launches rosbridge (port 9090)
+-   and all three demo nodes in the background, while the `web` container
+-   serves the Vite dev server on port 5173.
+-4. Open the **forwarded port 5173** (the **Ports** tab, or the "Open in
+-   Browser" toast) to use the GUI. The status badge should already read
+-   **Connected to ROS 2**, and the temperature card should update live.
+-5. To watch the node react to your clicks, either tail the background log
+-   (`tail -f /tmp/ros-logs/button_listener.log`) or run the **Run ROS** task to
+-   see the listener live in a terminal.
+-
+-> **Tip:** If the GUI shows "Disconnected", the background rosbridge may not be
+-> up yet — give it a few seconds and refresh, or run the **Run ROS** task
+-> manually. The GUI reaches rosbridge through a `/rosbridge` proxy on the same
+-> 5173 origin, so you do **not** need to change any port visibility.
+-
+-The local Docker workflow above is unchanged — Codespaces support is purely
+-additive (`.devcontainer/`, `.vscode/tasks.json`, and `scripts/`).
+-
+-## Expected output
+-
+-- In the **browser**, the connection badge turns green, temperature updates
+-  about four times per second, and recorder controls become available.
+-- Press **Start recording**, wait a moment, then press **Stop recording**. The
+-  row count rises and the CSV is written to
+-  `ros2_ws/data/temperature_readings.csv`.
+-- In the **terminal** running `docker compose up`, the ROS 2 node logs:
+-
+-```
+-ros2_react_starter_ros  | [INFO] [button_listener_node]: Button listener started
+-ros2_react_starter_ros  | [INFO] [button_listener_node]: Waiting for messages on /button_press
+-ros2_react_starter_ros  | [INFO] [temperature_publisher_node]: Fake temperature publisher started
+-ros2_react_starter_ros  | [INFO] [temperature_recorder_node]: Temperature recorder started (idle)
+-ros2_react_starter_ros  | [INFO] [button_listener_node]: Received: "Recording started from React GUI. Count = 1"
+-```
+-
+-## Understanding the topics
+-
+-- **`/button_press`** — the ROS 2 *topic* (a named channel). The React app
+-  **publishes** to it; the Python node **subscribes** to it.
+-- **`std_msgs/String`** — the *message type*. It carries one text field called
+-  `data`. Both the React side and the Python side must agree on this type, or
+-  they cannot communicate.
+-- **`/sensor/temperature`** — the fake sensor publishes `std_msgs/Float32`; the
+-  React GUI and recorder both subscribe.
+-- **`/recorder/command`** — React publishes `start`, `stop`, or `reset`.
+-- **`/recorder/status`** — the recorder publishes its state and written-row count.
+-
+-## Useful debugging commands
+-
+-Open a shell inside the ROS 2 container and inspect topics live:
++1. Fork the repository.
++2. Select **Code → Codespaces → Create codespace on main**.
++3. Wait for the post-create build to finish.
++4. Open forwarded port **5173**.
++
++`.devcontainer/start-ros.sh` automatically starts rosbridge and all four demo
++nodes. The GUI connects through the same-origin `/rosbridge` proxy, so port
++9090 does not need to be made public.
++
++Codespaces logs are stored under `/tmp/ros-logs/`:
+ 
+ ```bash
+-# Get a bash shell inside the running ROS 2 container
+-docker exec -it ros2_react_starter_ros bash
++tail -f /tmp/ros-logs/simulated_vehicle.log
++tail -f /tmp/ros-logs/temperature_recorder.log
++tail -f /tmp/ros-logs/button_listener.log
++```
++
++## Dashboard workflow
++
++1. Wait for **Connected to ROS 2** and the ROS-confirmed `IDLE` state.
++2. Click **Start vehicle**; ROS validates it and publishes `RUNNING`.
++3. Click **Accelerate** one or more times. Speed smoothly approaches the target.
++4. Use steering and braking controls and observe ROS telemetry and events.
++5. Click **Emergency stop** to lock normal controls and brake rapidly.
++6. Click **Reset vehicle** to return to `IDLE`.
++7. Start recording to save temperature and all vehicle telemetry to CSV.
++
++## Topics
++
++| Topic | Type | Direction | Purpose |
++|-------|------|-----------|---------|
++| `/button_press` | `std_msgs/msg/String` | React → ROS | Original test/control-event example. |
++| `/sensor/temperature` | `std_msgs/msg/Float32` | ROS → React/recorder | Simulated temperature at 4 Hz. |
++| `/recorder/command` | `std_msgs/msg/String` | React → ROS | `start`, `stop`, or `reset`. |
++| `/recorder/status` | `std_msgs/msg/String` | ROS → React | Recorder state and row count. |
++| `/sdc/command` | `std_msgs/msg/String` | React → ROS | Exact vehicle commands. |
++| `/sdc/status` | `std_msgs/msg/String` | ROS → React/recorder | Authoritative vehicle state. |
++| `/sdc/speed` | `std_msgs/msg/Float32` | ROS → React/recorder | Speed in km/h. |
++| `/sdc/steering` | `std_msgs/msg/Float32` | ROS → React/recorder | Steering angle in degrees. |
++| `/sdc/battery` | `std_msgs/msg/Float32` | ROS → React/recorder | Battery percentage. |
++| `/sdc/events` | `std_msgs/msg/String` | ROS → React | Human-readable vehicle/recorder events. |
++
++The Python constants are defined in
++`ros2_ws/src/gui_interface/gui_interface/topics.py`. The JavaScript mirror is
++`web_gui/src/services/rosTopics.js`. See
++[`ros2_ws/src/TOPICS.md`](ros2_ws/src/TOPICS.md) for the full topic contract.
++
++## Vehicle commands and states
++
++React publishes these exact strings to `/sdc/command`:
++
++| Command | Behaviour |
++|---------|-----------|
++| `START_VEHICLE` | Allowed from `IDLE` or `STOPPED`; enters `RUNNING`. |
++| `STOP_VEHICLE` | Smoothly reaches zero, centers steering, then enters `STOPPED`. |
++| `ACCELERATE` | Adds 10 km/h to the target, up to 80 km/h. |
++| `BRAKE` | Removes 10 km/h from the target, down to zero. |
++| `STEER_LEFT` | Moves the target left by 10°, limited to -30°. |
++| `STEER_RIGHT` | Moves the target right by 10°, limited to +30°. |
++| `CENTER_STEERING` | Smoothly returns steering to 0°. |
++| `EMERGENCY_STOP` | Enters `EMERGENCY_STOP`, locks controls, and rapidly brakes. |
++| `RESET_VEHICLE` | Returns to `IDLE` with zero speed and centered steering. |
++
++The battery remains between 0% and 100% and drains slowly only while running.
++If it reaches zero, the vehicle targets zero speed and stops. Reset preserves
++the battery value.
++
++## Telemetry recording
++
++The recorder writes four snapshots per second only while recording is active:
++
++```csv
++timestamp,temperature,speed,steering,battery,vehicle_status
++2026-07-13T16:30:21.125+00:00,22.47,18.6,-4.5,99.98,RUNNING
++```
++
++Output path:
+ 
+-# Inside the container, make ROS 2 commands available
++```text
++ros2_ws/data/temperature_readings.csv
++```
++
++- **Start recording:** opens the CSV and begins appending snapshots.
++- **Stop recording:** flushes and closes the file without deleting rows.
++- **Reset CSV:** safely recreates the header; active recording continues.
++
++Open it on Windows:
++
++```powershell
++notepad .\ros2_ws\data\temperature_readings.csv
++Get-Content .\ros2_ws\data\temperature_readings.csv -Wait
++```
++
++Open or follow it on Linux/macOS:
++
++```bash
++tail -f ros2_ws/data/temperature_readings.csv
++```
++
++## Inspect ROS manually
++
++Enter the running ROS container:
++
++```bash
++docker exec -it ros2_react_starter_ros bash
+ source /opt/ros/humble/setup.bash
++source /ros2_ws/install/setup.bash
++```
+ 
+-# List all active topics
++Inspect nodes and topics:
++
++```bash
++ros2 node list
+ ros2 topic list
++ros2 topic echo /sdc/status
++ros2 topic echo /sdc/speed
++ros2 topic echo /sdc/steering
++ros2 topic echo /sdc/battery
++ros2 topic echo /sdc/events
++ros2 topic echo /recorder/status
++```
+ 
+-# Print messages as they arrive on /button_press
+-ros2 topic echo /button_press
++Expected nodes include:
+ 
+-# Watch fake sensor readings
+-ros2 topic echo /sensor/temperature
++```text
++/button_listener_node
++/temperature_publisher_node
++/temperature_recorder_node
++/simulated_vehicle_node
++/rosbridge_websocket
+ ```
+ 
+-## Where to add your own code
++## Publish test commands manually
+ 
+-The ROS 2 workspace is split into clear packages under `ros2_ws/src/`:
++Run these inside the sourced ROS container:
+ 
++```bash
++ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'START_VEHICLE'}"
++ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'ACCELERATE'}"
++ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'EMERGENCY_STOP'}"
++ros2 topic pub --once /sdc/command std_msgs/msg/String "{data: 'RESET_VEHICLE'}"
+ ```
+-ros2_ws/src/
+-├── README.md            # full guide: file roles + recipe to add nodes
+-├── TOPICS.md            # central list of every topic + message type
+-├── gui_interface/       # SHARED: all topic names defined once (topics.py)
+-├── button_listener_pkg/ # PROVIDED EXAMPLE: a node that listens (GUI -> ROS)
+-└── student_nodes_pkg/   # YOUR PACKAGE: add your own nodes here
++
++Recorder tests:
++
++```bash
++ros2 topic pub --once /recorder/command std_msgs/msg/String "{data: 'start'}"
++ros2 topic pub --once /recorder/command std_msgs/msg/String "{data: 'stop'}"
++ros2 topic pub --once /recorder/command std_msgs/msg/String "{data: 'reset'}"
+ ```
+ 
+-Students work mainly in **`student_nodes_pkg/`**. To add a node: create a
+-`.py` file, register it in that package's `setup.py` under `console_scripts`,
+-then rebuild. See [ros2_ws/src/README.md](ros2_ws/src/README.md) for the full
+-step-by-step recipe (including when a rebuild is needed) and
+-[ros2_ws/src/TOPICS.md](ros2_ws/src/TOPICS.md) for the topic reference.
++## Rebuild after editing
+ 
+-> Because rosbridge exposes **every** ROS 2 topic to the browser, any topic you
+-> create is automatically reachable by the React GUI — just subscribe/publish
+-> to the same topic name on the JavaScript side.
++Docker rebuild and restart:
+ 
+-## Included extension levels
++```bash
++docker compose down
++docker compose up --build
++```
+ 
+-- **Level 1:** Start Recording, Stop Recording, and Reset CSV buttons publish
+-  distinct events that appear in the listener logs.
+-- **Level 2:** `temperature_publisher` publishes fake `Float32` readings four
+-  times per second.
+-- **Level 3:** React subscribes to the sensor topic and renders the live value.
+-- **Level 4:** `temperature_recorder` saves timestamped readings to CSV and is
+-  controlled from the browser.
++Rebuild only the ROS workspace inside the running container:
+ 
+-For another challenge, add a second sensor, plot recent readings, or expose the
+-CSV through a ROS service.
++```bash
++docker exec -it ros2_react_starter_ros bash
++cd /ros2_ws
++source /opt/ros/humble/setup.bash
++colcon build --symlink-install
++source install/setup.bash
++```
++
++Adding a new `console_scripts` entry requires a colcon rebuild. Editing an
++existing Python node under `--symlink-install` requires only a node restart.
++
++## View logs
++
++```bash
++docker compose ps
++docker compose logs ros2 --tail 200
++docker compose logs web --tail 100
++docker compose logs -f ros2
++```
++
++## Verification checklist
++
++- [ ] Docker starts both containers and React opens on port 5173.
++- [ ] The GUI connects and shows initial state `IDLE`.
++- [ ] The original test message reaches `button_listener`.
++- [ ] Temperature updates approximately four times per second.
++- [ ] Start changes state to `RUNNING` through `/sdc/status`.
++- [ ] Accelerate and brake change speed smoothly within 0–80 km/h.
++- [ ] Steering changes smoothly within -30° to +30°.
++- [ ] Battery decreases slowly while the vehicle is running.
++- [ ] Emergency stop locks normal controls and rapidly reduces speed.
++- [ ] Reset returns the system to `IDLE`.
++- [ ] Vehicle and recorder events appear in the live event log.
++- [ ] Start recording writes all six CSV columns.
++- [ ] Stop recording stops adding rows.
++- [ ] Reset CSV recreates only its header and resets the row count.
++- [ ] Browser refresh reconnects without duplicate event messages.
++- [ ] Docker restart brings every node back automatically.
+ 
+ ## Troubleshooting
+ 
+-**Docker not installed**
+-- Install Docker Desktop from the link in Prerequisites, then restart your terminal.
++### Docker engine is unavailable
+ 
+-**Docker daemon not running**
+-- You'll see: `Docker is not running. Start Docker Desktop and run this script again.`
+-- Open Docker Desktop, wait until it says "Running", then re-run the start script.
++Start Docker Desktop and wait until its Linux engine is running. Confirm both
++Client and Server sections appear:
+ 
+-**React shows "Disconnected" or "Connection error"**
+-- The ROS 2 container may still be building (first run is slow). Wait for the
+-  `Button listener started` log, then refresh the browser.
+-- Make sure rosbridge is reachable at `ws://localhost:9090`.
++```powershell
++docker version
++docker info
++```
++
++### GUI shows Disconnected
++
++The GUI automatically retries every two seconds. The first ROS build can take
++several minutes. Check:
++
++```bash
++docker compose ps
++docker compose logs ros2 --tail 200
++```
+ 
+-**Port 9090 already in use**
+-- Another program (or a previous container) is using rosbridge's port.
+-- Stop it, or change the host port mapping in `docker-compose.yml` (e.g. `"9091:9090"`)
+-  and update `VITE_ROSBRIDGE_PROXY_TARGET` to match.
++`ws://localhost:5173/rosbridge` is expected: Vite proxies that same-origin path
++to `ws://ros2:9090` inside Docker.
+ 
+-**Port 5173 already in use**
+-- The Vite dev server port is taken. Stop the other process, or change the
+-  mapping in `docker-compose.yml` (e.g. `"5174:5173"`).
++### Port already in use
+ 
+-**First run takes a long time**
+-- This is normal. Docker is downloading the ROS 2 Humble image and installing
+-  packages. Subsequent runs reuse the cached image and start quickly.
++Stop the conflicting process or change the relevant host mapping in
++`docker-compose.yml`. If changing the rosbridge target, also update
++`VITE_ROSBRIDGE_PROXY_TARGET`.
+ 
+ ## Project structure
+ 
+-```
+-ros2-react-starter/
+-├── docker/Dockerfile               # ROS 2 Humble image + rosbridge + tools
+-├── ros2_ws/                        # ROS 2 workspace (colcon builds all packages)
+-│   ├── data/                       # generated temperature CSV lives here
++```text
++ROS_ASSIGNMENT/
++├── .devcontainer/                 # Codespaces lifecycle scripts
++├── docker/Dockerfile              # ROS 2 Humble + rosbridge image
++├── ros2_ws/
++│   ├── data/                      # generated telemetry CSV
+ │   └── src/
+-│       ├── README.md               # guide: file roles + how to add nodes
+-│       ├── TOPICS.md               # central list of every topic
+-│       ├── gui_interface/          # shared topic-name definitions
+-│       ├── button_listener_pkg/    # provided example node (GUI -> ROS)
+-│       └── student_nodes_pkg/      # fake sensor, recorder, and student nodes
+-├── web_gui/                        # React + Vite app
+-├── docker-compose.yml              # Wires the ros2 + web containers together
+-├── start.sh / start.bat            # One-command startup scripts
+-└── README.md
++│       ├── gui_interface/         # shared Python topic constants
++│       ├── button_listener_pkg/   # original GUI → ROS example
++│       └── student_nodes_pkg/
++│           ├── temperature_publisher.py
++│           ├── temperature_recorder.py
++│           └── simulated_vehicle_node.py
++├── web_gui/src/
++│   ├── components/                # dashboard UI sections
++│   ├── hooks/useRosBridge.js      # one connection + topic lifecycle
++│   ├── services/rosTopics.js      # JavaScript topic contract
++│   ├── App.jsx
++│   └── App.css
++├── docker-compose.yml
++├── start.sh
++└── start.bat
+ ```
+ 
+ ## License
+diff --git a/docker-compose.yml b/docker-compose.yml
+index f9cbddd..742d49b 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,5 +1,5 @@
+ # Docker Compose wires together the two containers students need:
+-#   1) ros2 -> runs ROS 2 Humble, rosbridge, the listener, sensor, and recorder
++#   1) ros2 -> runs rosbridge, listener, sensor, recorder, and vehicle simulator
+ #   2) web  -> runs the React + Vite dev server (port 5173)
+ #
+ # Students never install ROS, Node, or rosbridge locally. Everything lives here.
+@@ -24,7 +24,7 @@ services:
+     #   2. build the workspace with colcon
+     #   3. source the freshly built workspace
+     #   4. start rosbridge in the BACKGROUND (note the trailing &)
+-    #   5. start the fake sensor + CSV recorder in the BACKGROUND
++    #   5. start the sensor, recorder, and vehicle simulator in the BACKGROUND
+     #   6. start our button_listener node in the FOREGROUND (keeps container alive)
+     #
+     # Backgrounding rosbridge with `&` lets both processes run from one command.
+@@ -38,6 +38,7 @@ services:
+       (ros2 launch rosbridge_server rosbridge_websocket_launch.xml &) &&
+       (ros2 run student_nodes_pkg temperature_publisher &) &&
+       (ros2 run student_nodes_pkg temperature_recorder &) &&
++      (ros2 run student_nodes_pkg simulated_vehicle &) &&
+       sleep 5 &&
+       ros2 run button_listener_pkg button_listener"
+ 
+diff --git a/ros2_ws/data/README.md b/ros2_ws/data/README.md
+index 99307c9..61156aa 100644
+--- a/ros2_ws/data/README.md
++++ b/ros2_ws/data/README.md
+@@ -1,4 +1,6 @@
+ # Generated sensor data
+ 
+ `temperature_recorder` creates `temperature_readings.csv` in this directory.
+-Generated CSV files are ignored by Git.
++It records timestamp, temperature, speed, steering, battery, and vehicle status
++four times per second while recording is active. Generated CSV files are
++ignored by Git.
+diff --git a/ros2_ws/src/README.md b/ros2_ws/src/README.md
+index 0d917d6..04900db 100644
+--- a/ros2_ws/src/README.md
++++ b/ros2_ws/src/README.md
+@@ -17,7 +17,8 @@ src/
+     └── student_nodes_pkg/
+         ├── example_publisher.py       (example: ROS -> GUI)
+         ├── temperature_publisher.py   (fake Float32 sensor)
+-        └── temperature_recorder.py    (command-controlled CSV writer)
++        ├── temperature_recorder.py    (all-telemetry CSV writer)
++        └── simulated_vehicle_node.py  (authoritative SDC simulator)
+ ```
+ 
+ ## Which file does what
+@@ -56,10 +57,16 @@ them yourself after building and sourcing the workspace:
+ ```bash
+ ros2 run student_nodes_pkg temperature_publisher
+ ros2 run student_nodes_pkg temperature_recorder
++ros2 run student_nodes_pkg simulated_vehicle
+ ```
+ 
+ The GUI publishes `start`, `stop`, and `reset` on `/recorder/command`. Recorded
+-rows are written to `ros2_ws/data/temperature_readings.csv`.
++rows are written to `ros2_ws/data/temperature_readings.csv`. Each row contains
++timestamp, temperature, speed, steering, battery, and vehicle status.
++
++The GUI publishes the exact commands documented in `TOPICS.md` on
++`/sdc/command`. `simulated_vehicle` validates them, updates smooth vehicle
++dynamics on a ROS timer, and publishes the authoritative result back to React.
+ 
+ ## Adding multiple nodes in one package
+ 
+diff --git a/ros2_ws/src/TOPICS.md b/ros2_ws/src/TOPICS.md
+index 10d2b7e..79d0bf6 100644
+--- a/ros2_ws/src/TOPICS.md
++++ b/ros2_ws/src/TOPICS.md
+@@ -27,6 +27,28 @@ React GUI  <--roslibjs/WebSocket-->  rosbridge_server (:9090)  <-->  ROS 2 topic
+ | `/sensor/temperature` | `std_msgs/Float32` | `temperature_publisher` (`student_nodes_pkg`) | React GUI and `temperature_recorder` | Fake Celsius reading published at 4 Hz. |
+ | `/recorder/command` | `std_msgs/String` | React GUI | `temperature_recorder` | Commands: `start`, `stop`, or `reset`. |
+ | `/recorder/status` | `std_msgs/String` | `temperature_recorder` | React GUI | State and row count in `state:count` format. |
++| `/sdc/command` | `std_msgs/String` | React GUI | `simulated_vehicle` | Exact vehicle command strings listed below. |
++| `/sdc/status` | `std_msgs/String` | `simulated_vehicle` | React GUI and `temperature_recorder` | Authoritative state: `IDLE`, `RUNNING`, `STOPPED`, or `EMERGENCY_STOP`. |
++| `/sdc/speed` | `std_msgs/Float32` | `simulated_vehicle` | React GUI and `temperature_recorder` | Smooth simulated speed from 0–80 km/h. |
++| `/sdc/steering` | `std_msgs/Float32` | `simulated_vehicle` | React GUI and `temperature_recorder` | Smooth steering angle from -30° to +30°. |
++| `/sdc/battery` | `std_msgs/Float32` | `simulated_vehicle` | React GUI and `temperature_recorder` | Battery percentage from 0–100%. |
++| `/sdc/events` | `std_msgs/String` | `simulated_vehicle` and `temperature_recorder` | React GUI | Human-readable state, control, and recorder events. |
++
++## Vehicle commands
++
++Publish one of these exact strings to `/sdc/command`:
++
++| Command | Effect |
++|---------|--------|
++| `START_VEHICLE` | Move from `IDLE` or `STOPPED` to `RUNNING`. |
++| `STOP_VEHICLE` | Smoothly stop, center steering, then publish `STOPPED`. |
++| `ACCELERATE` | Raise the target speed by 10 km/h, up to 80 km/h. |
++| `BRAKE` | Lower the target speed by 10 km/h. |
++| `STEER_LEFT` | Lower the target steering angle by 10°, down to -30°. |
++| `STEER_RIGHT` | Raise the target steering angle by 10°, up to +30°. |
++| `CENTER_STEERING` | Smoothly return steering to 0°. |
++| `EMERGENCY_STOP` | Lock ordinary controls and brake rapidly. |
++| `RESET_VEHICLE` | Return to `IDLE` with zero speed and centered steering. |
+ 
+ ## Adding a new topic — checklist
+ 
+diff --git a/ros2_ws/src/gui_interface/gui_interface/topics.py b/ros2_ws/src/gui_interface/gui_interface/topics.py
+index 2aa2f8a..88c0d9c 100644
+--- a/ros2_ws/src/gui_interface/gui_interface/topics.py
++++ b/ros2_ws/src/gui_interface/gui_interface/topics.py
+@@ -42,6 +42,29 @@ TOPIC_RECORDER_COMMAND = '/recorder/command'
+ TOPIC_RECORDER_STATUS = '/recorder/status'
+ 
+ 
++# ---------------------------------------------------------------------------
++# Simulated self-driving-car dashboard topics.
++# ---------------------------------------------------------------------------
++
++# React vehicle controls -> simulated_vehicle.
++# Message type: std_msgs/String
++TOPIC_SDC_COMMAND = '/sdc/command'
++
++# Authoritative vehicle state -> React + recorder.
++# Message type: std_msgs/String
++TOPIC_SDC_STATUS = '/sdc/status'
++
++# Simulated vehicle telemetry -> React + recorder.
++# Message type: std_msgs/Float32
++TOPIC_SDC_SPEED = '/sdc/speed'
++TOPIC_SDC_STEERING = '/sdc/steering'
++TOPIC_SDC_BATTERY = '/sdc/battery'
++
++# Human-readable vehicle and recorder events -> React.
++# Message type: std_msgs/String
++TOPIC_SDC_EVENTS = '/sdc/events'
++
++
+ # ---------------------------------------------------------------------------
+ # Add YOUR topics below. Example (uncomment and adapt):
+ #
+diff --git a/ros2_ws/src/student_nodes_pkg/package.xml b/ros2_ws/src/student_nodes_pkg/package.xml
+index 60baace..2896007 100644
+--- a/ros2_ws/src/student_nodes_pkg/package.xml
++++ b/ros2_ws/src/student_nodes_pkg/package.xml
+@@ -6,10 +6,11 @@
+   <description>
+     THIS IS YOUR PACKAGE. Add your own ROS 2 nodes here.
+ 
+-    It ships with a text publisher example, a fake temperature sensor, and a
+-    CSV recorder. Because rosbridge exposes every topic to the browser, anything
+-    published here can be read by the React GUI. Copy an example, rename it,
+-    and register it in setup.py to create your own nodes.
++    It ships with a text publisher example, a fake temperature sensor, a
++    telemetry CSV recorder, and an authoritative simulated vehicle. Because
++    rosbridge exposes every topic to the browser, anything published here can
++    be read by the React GUI. Copy an example, rename it, and register it in
++    setup.py to create your own nodes.
+   </description>
+   <maintainer email="student@example.com">student</maintainer>
+   <license>MIT</license>
+diff --git a/ros2_ws/src/student_nodes_pkg/setup.py b/ros2_ws/src/student_nodes_pkg/setup.py
+index 73d33a1..379bcf3 100644
+--- a/ros2_ws/src/student_nodes_pkg/setup.py
++++ b/ros2_ws/src/student_nodes_pkg/setup.py
+@@ -34,6 +34,7 @@ setup(
+             #   ros2 run student_nodes_pkg temperature_recorder
+             'temperature_publisher = student_nodes_pkg.temperature_publisher:main',
+             'temperature_recorder = student_nodes_pkg.temperature_recorder:main',
++            'simulated_vehicle = student_nodes_pkg.simulated_vehicle_node:main',
+ 
+             # ADD YOUR OWN NODES BELOW, one per line. For example:
+             #   'my_node = student_nodes_pkg.my_node:main',
+diff --git a/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/simulated_vehicle_node.py b/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/simulated_vehicle_node.py
+new file mode 100644
+index 0000000..f74d14e
+--- /dev/null
++++ b/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/simulated_vehicle_node.py
+@@ -0,0 +1,313 @@
++#!/usr/bin/env python3
++"""Authoritative ROS 2 simulation for the self-driving-car dashboard."""
++
++import rclpy
++from rclpy.node import Node
++from std_msgs.msg import Float32, String
++
++from gui_interface.topics import (
++    TOPIC_SDC_BATTERY,
++    TOPIC_SDC_COMMAND,
++    TOPIC_SDC_EVENTS,
++    TOPIC_SDC_SPEED,
++    TOPIC_SDC_STATUS,
++    TOPIC_SDC_STEERING,
++)
++
++
++class SimulatedVehicle(Node):
++    """Process GUI commands and publish smooth, bounded vehicle telemetry."""
++
++    STATE_IDLE = 'IDLE'
++    STATE_RUNNING = 'RUNNING'
++    STATE_STOPPED = 'STOPPED'
++    STATE_EMERGENCY_STOP = 'EMERGENCY_STOP'
++
++    MAX_SPEED = 80.0
++    MIN_STEERING = -30.0
++    MAX_STEERING = 30.0
++
++    UPDATE_RATE_HZ = 10.0
++    ACCELERATION_RATE = 6.0
++    BRAKING_RATE = 12.0
++    EMERGENCY_BRAKING_RATE = 35.0
++    STEERING_RATE = 45.0
++
++    def __init__(self):
++        super().__init__('simulated_vehicle_node')
++
++        self.state = self.STATE_IDLE
++        self.speed = 0.0
++        self.target_speed = 0.0
++        self.steering = 0.0
++        self.target_steering = 0.0
++        self.battery = 100.0
++        self.stop_requested = False
++        self.battery_empty_event_sent = False
++
++        self.command_subscription = self.create_subscription(
++            String,
++            TOPIC_SDC_COMMAND,
++            self.handle_command,
++            10,
++        )
++        self.status_publisher = self.create_publisher(String, TOPIC_SDC_STATUS, 10)
++        self.speed_publisher = self.create_publisher(Float32, TOPIC_SDC_SPEED, 10)
++        self.steering_publisher = self.create_publisher(
++            Float32,
++            TOPIC_SDC_STEERING,
++            10,
++        )
++        self.battery_publisher = self.create_publisher(Float32, TOPIC_SDC_BATTERY, 10)
++        self.event_publisher = self.create_publisher(String, TOPIC_SDC_EVENTS, 10)
++
++        self.timer_period = 1.0 / self.UPDATE_RATE_HZ
++        self.update_timer = self.create_timer(self.timer_period, self.update_vehicle)
++
++        self.get_logger().info('Simulated vehicle started')
++        self.get_logger().info(f'Waiting for commands on {TOPIC_SDC_COMMAND}')
++        self.publish_status()
++        self.publish_telemetry()
++        self.publish_event('Vehicle simulator ready')
++
++    @staticmethod
++    def clamp(value, minimum, maximum):
++        return max(minimum, min(maximum, value))
++
++    @staticmethod
++    def move_toward(current, target, maximum_step):
++        if current < target:
++            return min(current + maximum_step, target)
++        if current > target:
++            return max(current - maximum_step, target)
++        return current
++
++    def publish_event(self, text):
++        message = String()
++        message.data = text
++        self.event_publisher.publish(message)
++        self.get_logger().info(text)
++
++    def publish_status(self):
++        message = String()
++        message.data = self.state
++        self.status_publisher.publish(message)
++
++    def publish_float(self, publisher, value):
++        message = Float32()
++        message.data = float(value)
++        publisher.publish(message)
++
++    def publish_telemetry(self):
++        self.publish_status()
++        self.publish_float(self.speed_publisher, self.speed)
++        self.publish_float(self.steering_publisher, self.steering)
++        self.publish_float(self.battery_publisher, self.battery)
++
++    def reject_command(self, reason):
++        self.publish_event(f'Command rejected: {reason}')
++
++    def handle_command(self, message):
++        command = message.data.strip().upper()
++        self.get_logger().info(f'Received command: {command or "<empty>"}')
++
++        handlers = {
++            'START_VEHICLE': self.start_vehicle,
++            'STOP_VEHICLE': self.stop_vehicle,
++            'ACCELERATE': self.accelerate,
++            'BRAKE': self.brake,
++            'STEER_LEFT': self.steer_left,
++            'STEER_RIGHT': self.steer_right,
++            'CENTER_STEERING': self.center_steering,
++            'EMERGENCY_STOP': self.emergency_stop,
++            'RESET_VEHICLE': self.reset_vehicle,
++        }
++
++        handler = handlers.get(command)
++        if handler is None:
++            self.publish_event(f'Unknown vehicle command: {command or "<empty>"}')
++            return
++
++        if self.state == self.STATE_EMERGENCY_STOP and command != 'RESET_VEHICLE':
++            self.reject_command('reset the vehicle after an emergency stop')
++            return
++
++        handler()
++        self.publish_status()
++
++    def start_vehicle(self):
++        if self.state not in (self.STATE_IDLE, self.STATE_STOPPED):
++            self.reject_command('vehicle is already running')
++            return
++        if self.battery <= 0.0:
++            self.reject_command('battery is empty')
++            return
++
++        self.state = self.STATE_RUNNING
++        self.stop_requested = False
++        self.publish_event('Vehicle started')
++
++    def stop_vehicle(self):
++        if self.state != self.STATE_RUNNING:
++            self.reject_command('vehicle is not running')
++            return
++
++        self.target_speed = 0.0
++        self.target_steering = 0.0
++        self.stop_requested = True
++        if self.speed <= 0.01:
++            self.finish_stop()
++        else:
++            self.publish_event('Vehicle stopping')
++
++    def accelerate(self):
++        if self.state != self.STATE_RUNNING or self.stop_requested:
++            self.reject_command('vehicle is not ready to accelerate')
++            return
++        if self.battery <= 0.0:
++            self.reject_command('battery is empty')
++            return
++
++        self.target_speed = self.clamp(
++            self.target_speed + 10.0,
++            0.0,
++            self.MAX_SPEED,
++        )
++        self.publish_event(f'Accelerating toward {self.target_speed:.0f} km/h')
++
++    def brake(self):
++        if self.state != self.STATE_RUNNING or self.stop_requested:
++            self.reject_command('vehicle is not running normally')
++            return
++
++        self.target_speed = self.clamp(self.target_speed - 10.0, 0.0, self.MAX_SPEED)
++        self.publish_event(f'Braking toward {self.target_speed:.0f} km/h')
++
++    def steer_left(self):
++        if self.state != self.STATE_RUNNING or self.stop_requested:
++            self.reject_command('vehicle is not running normally')
++            return
++
++        self.target_steering = self.clamp(
++            self.target_steering - 10.0,
++            self.MIN_STEERING,
++            self.MAX_STEERING,
++        )
++        self.publish_event('Steering left')
++
++    def steer_right(self):
++        if self.state != self.STATE_RUNNING or self.stop_requested:
++            self.reject_command('vehicle is not running normally')
++            return
++
++        self.target_steering = self.clamp(
++            self.target_steering + 10.0,
++            self.MIN_STEERING,
++            self.MAX_STEERING,
++        )
++        self.publish_event('Steering right')
++
++    def center_steering(self):
++        if self.state != self.STATE_RUNNING or self.stop_requested:
++            self.reject_command('vehicle is not running normally')
++            return
++
++        self.target_steering = 0.0
++        self.publish_event('Steering centered')
++
++    def emergency_stop(self):
++        self.state = self.STATE_EMERGENCY_STOP
++        self.target_speed = 0.0
++        self.target_steering = 0.0
++        self.stop_requested = False
++        self.publish_event('Emergency stop activated')
++
++    def reset_vehicle(self):
++        self.state = self.STATE_IDLE
++        self.speed = 0.0
++        self.target_speed = 0.0
++        self.steering = 0.0
++        self.target_steering = 0.0
++        self.stop_requested = False
++        self.battery_empty_event_sent = self.battery <= 0.0
++        self.publish_event('Vehicle reset')
++
++    def finish_stop(self):
++        self.speed = 0.0
++        self.target_speed = 0.0
++        self.state = self.STATE_STOPPED
++        self.stop_requested = False
++        self.publish_event('Vehicle stopped')
++        self.publish_status()
++
++    def update_speed(self):
++        if self.state == self.STATE_EMERGENCY_STOP:
++            rate = self.EMERGENCY_BRAKING_RATE
++        elif self.target_speed > self.speed:
++            rate = self.ACCELERATION_RATE
++        else:
++            rate = self.BRAKING_RATE
++
++        self.speed = self.move_toward(
++            self.speed,
++            self.target_speed,
++            rate * self.timer_period,
++        )
++        self.speed = self.clamp(self.speed, 0.0, self.MAX_SPEED)
++
++    def update_steering(self):
++        self.steering = self.move_toward(
++            self.steering,
++            self.target_steering,
++            self.STEERING_RATE * self.timer_period,
++        )
++        self.steering = self.clamp(
++            self.steering,
++            self.MIN_STEERING,
++            self.MAX_STEERING,
++        )
++
++    def update_battery(self):
++        if self.state != self.STATE_RUNNING or self.battery <= 0.0:
++            return
++
++        speed_factor = self.speed / self.MAX_SPEED
++        drain_per_second = 0.005 + (0.005 * speed_factor)
++        self.battery = self.clamp(
++            self.battery - (drain_per_second * self.timer_period),
++            0.0,
++            100.0,
++        )
++
++        if self.battery <= 0.0 and not self.battery_empty_event_sent:
++            self.battery_empty_event_sent = True
++            self.target_speed = 0.0
++            self.target_steering = 0.0
++            self.stop_requested = True
++            self.publish_event('Battery empty; vehicle stopping')
++
++    def update_vehicle(self):
++        self.update_battery()
++        self.update_speed()
++        self.update_steering()
++
++        if self.stop_requested and self.speed <= 0.01:
++            self.finish_stop()
++
++        self.publish_telemetry()
++
++
++def main(args=None):
++    rclpy.init(args=args)
++    node = SimulatedVehicle()
++    try:
++        rclpy.spin(node)
++    except KeyboardInterrupt:
++        node.get_logger().info('Simulated vehicle stopped by user')
++    finally:
++        node.destroy_node()
++        rclpy.shutdown()
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/temperature_recorder.py b/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/temperature_recorder.py
+index c5f3a17..d69cd66 100644
+--- a/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/temperature_recorder.py
++++ b/ros2_ws/src/student_nodes_pkg/student_nodes_pkg/temperature_recorder.py
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Record fake temperature readings to CSV when commanded by the React GUI."""
++"""Record temperature and simulated vehicle telemetry to a single CSV file."""
+ 
+ import csv
+ from datetime import datetime, timezone
+@@ -12,12 +12,26 @@ from std_msgs.msg import Float32, String
+ from gui_interface.topics import (
+     TOPIC_RECORDER_COMMAND,
+     TOPIC_RECORDER_STATUS,
++    TOPIC_SDC_BATTERY,
++    TOPIC_SDC_EVENTS,
++    TOPIC_SDC_SPEED,
++    TOPIC_SDC_STATUS,
++    TOPIC_SDC_STEERING,
+     TOPIC_SENSOR_TEMPERATURE,
+ )
+ 
+ 
+ class TemperatureRecorder(Node):
+-    """A command-controlled CSV recorder for /sensor/temperature."""
++    """Command-controlled snapshot recorder for every dashboard telemetry value."""
++
++    CSV_HEADER = [
++        'timestamp',
++        'temperature',
++        'speed',
++        'steering',
++        'battery',
++        'vehicle_status',
++    ]
+ 
+     def __init__(self):
+         super().__init__('temperature_recorder_node')
+@@ -29,11 +43,43 @@ class TemperatureRecorder(Node):
+ 
+         self.is_recording = False
+         self.recorded_count = 0
++        self.csv_file = None
++        self.csv_writer = None
++
++        self.latest_temperature = None
++        self.latest_speed = None
++        self.latest_steering = None
++        self.latest_battery = None
++        self.latest_vehicle_status = None
+ 
+         self.temperature_subscription = self.create_subscription(
+             Float32,
+             TOPIC_SENSOR_TEMPERATURE,
+-            self.record_temperature,
++            self.update_temperature,
++            10,
++        )
++        self.speed_subscription = self.create_subscription(
++            Float32,
++            TOPIC_SDC_SPEED,
++            self.update_speed,
++            10,
++        )
++        self.steering_subscription = self.create_subscription(
++            Float32,
++            TOPIC_SDC_STEERING,
++            self.update_steering,
++            10,
++        )
++        self.battery_subscription = self.create_subscription(
++            Float32,
++            TOPIC_SDC_BATTERY,
++            self.update_battery,
++            10,
++        )
++        self.vehicle_status_subscription = self.create_subscription(
++            String,
++            TOPIC_SDC_STATUS,
++            self.update_vehicle_status,
+             10,
+         )
+         self.command_subscription = self.create_subscription(
+@@ -42,73 +88,157 @@ class TemperatureRecorder(Node):
+             self.handle_command,
+             10,
+         )
++
+         self.status_publisher = self.create_publisher(
+             String,
+             TOPIC_RECORDER_STATUS,
+             10,
+         )
++        self.event_publisher = self.create_publisher(String, TOPIC_SDC_EVENTS, 10)
+ 
+         self.ensure_csv_header()
++        self.record_timer = self.create_timer(0.25, self.record_snapshot)
+         self.status_timer = self.create_timer(2.0, self.publish_current_status)
+ 
+-        self.get_logger().info('Temperature recorder started (idle)')
++        self.get_logger().info('Telemetry recorder started (idle)')
+         self.get_logger().info(f'CSV output: {self.csv_path}')
+         self.get_logger().info(f'Waiting for commands on {TOPIC_RECORDER_COMMAND}')
+ 
+     def ensure_csv_header(self):
+-        """Create the file and header if it is new or empty."""
+         if self.csv_path.exists() and self.csv_path.stat().st_size > 0:
+             return
+ 
+         with self.csv_path.open('w', newline='', encoding='utf-8') as csv_file:
+-            writer = csv.writer(csv_file)
+-            writer.writerow(['timestamp_utc', 'temperature_celsius'])
++            csv.writer(csv_file).writerow(self.CSV_HEADER)
++
++    def open_csv_for_append(self):
++        if self.csv_file is not None:
++            return
++
++        self.ensure_csv_header()
++        self.csv_file = self.csv_path.open('a', newline='', encoding='utf-8')
++        self.csv_writer = csv.writer(self.csv_file)
++
++    def close_csv(self):
++        if self.csv_file is None:
++            return
++
++        csv_file = self.csv_file
++        self.csv_file = None
++        self.csv_writer = None
++        try:
++            csv_file.flush()
++        except OSError as error:
++            self.get_logger().error(f'Could not flush telemetry CSV: {error}')
++        try:
++            csv_file.close()
++        except OSError as error:
++            self.get_logger().error(f'Could not close telemetry CSV: {error}')
++
++    def publish_event(self, text):
++        message = String()
++        message.data = text
++        self.event_publisher.publish(message)
++        self.get_logger().info(text)
++
++    def update_temperature(self, message):
++        self.latest_temperature = float(message.data)
++
++    def update_speed(self, message):
++        self.latest_speed = float(message.data)
++
++    def update_steering(self, message):
++        self.latest_steering = float(message.data)
++
++    def update_battery(self, message):
++        self.latest_battery = float(message.data)
++
++    def update_vehicle_status(self, message):
++        self.latest_vehicle_status = message.data.strip() or None
+ 
+     def handle_command(self, message):
+-        """Handle start, stop, and reset commands sent from the browser."""
+         command = message.data.strip().lower()
+ 
+         if command == 'start':
+-            self.is_recording = True
+-            self.get_logger().info('CSV recording started')
++            if not self.is_recording:
++                try:
++                    self.open_csv_for_append()
++                except OSError as error:
++                    self.get_logger().error(f'Could not open telemetry CSV: {error}')
++                    self.publish_event('Recording could not be started')
++                    self.publish_current_status()
++                    return
++                self.is_recording = True
++                self.publish_event('Recording started')
+         elif command == 'stop':
+-            self.is_recording = False
+-            self.get_logger().info(
+-                f'CSV recording stopped after {self.recorded_count} readings'
+-            )
++            if self.is_recording:
++                self.is_recording = False
++                self.close_csv()
++                self.publish_event('Recording stopped')
+         elif command == 'reset':
+             was_recording = self.is_recording
++            self.close_csv()
+             self.recorded_count = 0
+-            with self.csv_path.open('w', newline='', encoding='utf-8') as csv_file:
+-                writer = csv.writer(csv_file)
+-                writer.writerow(['timestamp_utc', 'temperature_celsius'])
+-            self.is_recording = was_recording
+-            self.get_logger().info('CSV recording file reset')
++            try:
++                with self.csv_path.open('w', newline='', encoding='utf-8') as csv_file:
++                    csv.writer(csv_file).writerow(self.CSV_HEADER)
++                if was_recording:
++                    self.open_csv_for_append()
++            except OSError as error:
++                self.is_recording = False
++                self.get_logger().error(f'Could not reset telemetry CSV: {error}')
++                self.publish_event('CSV reset failed')
++                self.publish_current_status()
++                return
++            self.publish_event('CSV reset')
+         else:
+-            self.get_logger().warning(f'Ignoring unknown recorder command: {message.data}')
++            self.get_logger().warning(
++                f'Ignoring unknown recorder command: {message.data}'
++            )
+             return
+ 
+         self.publish_current_status()
+ 
+-    def record_temperature(self, message):
+-        """Append a timestamped sensor reading while recording is active."""
++    @staticmethod
++    def csv_value(value):
++        return '' if value is None else value
++
++    def record_snapshot(self):
+         if not self.is_recording:
+             return
+ 
+-        timestamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds')
+-        with self.csv_path.open('a', newline='', encoding='utf-8') as csv_file:
+-            writer = csv.writer(csv_file)
+-            writer.writerow([timestamp, f'{message.data:.2f}'])
+-
+-        self.recorded_count += 1
++        try:
++            self.open_csv_for_append()
++            timestamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds')
++            self.csv_writer.writerow(
++                [
++                    timestamp,
++                    self.csv_value(self.latest_temperature),
++                    self.csv_value(self.latest_speed),
++                    self.csv_value(self.latest_steering),
++                    self.csv_value(self.latest_battery),
++                    self.csv_value(self.latest_vehicle_status),
++                ]
++            )
++            self.csv_file.flush()
++            self.recorded_count += 1
++        except OSError as error:
++            self.is_recording = False
++            self.close_csv()
++            self.get_logger().error(f'Could not write telemetry CSV: {error}')
++            self.publish_event('Recording stopped because the CSV could not be written')
++            self.publish_current_status()
+ 
+     def publish_current_status(self):
+-        """Publish periodic state so a newly opened GUI receives it quickly."""
+         state = 'recording' if self.is_recording else 'idle'
+         status = String()
+         status.data = f'{state}:{self.recorded_count}'
+         self.status_publisher.publish(status)
+ 
++    def destroy_node(self):
++        self.close_csv()
++        return super().destroy_node()
++
+ 
+ def main(args=None):
+     rclpy.init(args=args)
+@@ -116,7 +246,7 @@ def main(args=None):
+     try:
+         rclpy.spin(node)
+     except KeyboardInterrupt:
+-        pass
++        node.get_logger().info('Telemetry recorder stopped by user')
+     finally:
+         node.destroy_node()
+         rclpy.shutdown()
+diff --git a/scripts/run_ros.sh b/scripts/run_ros.sh
+index dcefcc3..a9ac8bc 100755
+--- a/scripts/run_ros.sh
++++ b/scripts/run_ros.sh
+@@ -32,6 +32,9 @@ ros2 run student_nodes_pkg temperature_publisher &
+ echo "==> Starting CSV temperature recorder (background)"
+ ros2 run student_nodes_pkg temperature_recorder &
+ 
++echo "==> Starting simulated vehicle (background)"
++ros2 run student_nodes_pkg simulated_vehicle &
++
+ # Give rosbridge a moment to come up before starting the node.
+ sleep 5
+ 
+diff --git a/web_gui/src/App.css b/web_gui/src/App.css
+index 12d2274..14e476d 100644
+--- a/web_gui/src/App.css
++++ b/web_gui/src/App.css
+@@ -24,21 +24,21 @@ code {
+ }
+ 
+ button:focus-visible {
+-  outline: 3px solid rgba(103, 232, 249, 0.75);
++  outline: 3px solid rgba(103, 232, 249, 0.72);
+   outline-offset: 3px;
+ }
+ 
+ .app-shell {
+   min-height: 100vh;
+-  padding: 40px 20px;
++  padding: 38px 20px;
+   background:
+-    radial-gradient(circle at 12% 5%, rgba(14, 165, 233, 0.18), transparent 34%),
+-    radial-gradient(circle at 90% 95%, rgba(16, 185, 129, 0.12), transparent 35%),
++    radial-gradient(circle at 8% 4%, rgba(14, 165, 233, 0.17), transparent 31%),
++    radial-gradient(circle at 94% 88%, rgba(16, 185, 129, 0.1), transparent 29%),
+     #07111f;
+ }
+ 
+ .dashboard {
+-  width: min(1040px, 100%);
++  width: min(1180px, 100%);
+   margin: 0 auto;
+ }
+ 
+@@ -47,16 +47,7 @@ button:focus-visible {
+   align-items: flex-start;
+   justify-content: space-between;
+   gap: 32px;
+-  margin-bottom: 32px;
+-}
+-
+-.eyebrow {
+-  margin: 0 0 8px;
+-  color: #67e8f9;
+-  font-size: 0.75rem;
+-  font-weight: 800;
+-  letter-spacing: 0.14em;
+-  text-transform: uppercase;
++  margin-bottom: 28px;
+ }
+ 
+ h1,
+@@ -67,16 +58,30 @@ p {
+ 
+ h1 {
+   margin-bottom: 10px;
+-  font-size: clamp(2rem, 5vw, 3.5rem);
++  font-size: clamp(2rem, 5vw, 3.45rem);
+   line-height: 1;
+   letter-spacing: -0.045em;
+ }
+ 
++h2 {
++  margin-bottom: 0;
++  font-size: 1.18rem;
++}
++
++.eyebrow,
++.section-kicker {
++  margin: 0 0 8px;
++  color: #67e8f9;
++  font-size: 0.72rem;
++  font-weight: 800;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++}
++
+ .subtitle {
+-  max-width: 620px;
++  max-width: 670px;
+   margin-bottom: 0;
+   color: #9fb0c9;
+-  font-size: 1rem;
+   line-height: 1.6;
+ }
+ 
+@@ -89,7 +94,7 @@ h1 {
+   border: 1px solid rgba(148, 163, 184, 0.22);
+   border-radius: 999px;
+   color: #cbd5e1;
+-  background: rgba(15, 23, 42, 0.75);
++  background: rgba(15, 23, 42, 0.76);
+   font-size: 0.82rem;
+   font-weight: 700;
+   backdrop-filter: blur(12px);
+@@ -113,141 +118,183 @@ h1 {
+   box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.13);
+ }
+ 
+-.metrics-grid {
+-  display: grid;
+-  grid-template-columns: 1.35fr 1fr 1fr;
+-  gap: 16px;
+-}
+-
+-.metric-card,
+-.controls-card {
+-  border: 1px solid rgba(148, 163, 184, 0.14);
++.vehicle-status {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 24px;
++  min-height: 126px;
++  padding: 24px 28px;
++  border: 1px solid rgba(148, 163, 184, 0.15);
+   border-radius: 20px;
+-  background: rgba(13, 26, 45, 0.88);
++  background:
++    linear-gradient(120deg, rgba(71, 85, 105, 0.16), transparent 58%),
++    rgba(13, 26, 45, 0.91);
+   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.2);
+ }
+ 
+-.metric-card {
++.vehicle-status > div:first-child {
+   display: flex;
+-  min-height: 190px;
+   flex-direction: column;
+-  justify-content: space-between;
+-  padding: 24px;
++  gap: 12px;
+ }
+ 
+-.metric-card--temperature {
+-  border-color: rgba(103, 232, 249, 0.24);
+-  background:
+-    linear-gradient(145deg, rgba(8, 145, 178, 0.14), transparent 64%),
+-    rgba(13, 26, 45, 0.92);
++.vehicle-status > div:first-child strong {
++  color: #f8fafc;
++  font-size: clamp(1.75rem, 4vw, 2.7rem);
++  letter-spacing: -0.035em;
+ }
+ 
+-.metric-label {
+-  color: #9fb0c9;
+-  font-size: 0.78rem;
+-  font-weight: 800;
+-  letter-spacing: 0.08em;
+-  text-transform: uppercase;
++.vehicle-status--running {
++  border-color: rgba(52, 211, 153, 0.3);
++  background:
++    linear-gradient(120deg, rgba(16, 185, 129, 0.16), transparent 58%),
++    rgba(13, 26, 45, 0.91);
+ }
+ 
+-.temperature-value,
+-.event-count {
+-  color: #f8fafc;
+-  font-size: clamp(2.5rem, 6vw, 4rem);
+-  font-weight: 800;
+-  letter-spacing: -0.06em;
++.vehicle-status--running > div:first-child strong {
++  color: #6ee7b7;
+ }
+ 
+-.temperature-value span {
+-  margin-left: 8px;
+-  color: #67e8f9;
+-  font-size: 1.15rem;
+-  letter-spacing: 0;
++.vehicle-status--emergency-stop {
++  border-color: rgba(251, 113, 133, 0.4);
++  background:
++    linear-gradient(120deg, rgba(225, 29, 72, 0.19), transparent 58%),
++    rgba(31, 18, 36, 0.94);
+ }
+ 
+-.metric-detail {
+-  color: #71839e;
+-  font-size: 0.82rem;
++.vehicle-status--emergency-stop > div:first-child strong {
++  color: #fda4af;
+ }
+ 
+-.recorder-state {
++.last-command {
+   display: flex;
+-  align-items: center;
+-  gap: 10px;
+-  color: #cbd5e1;
+-  font-size: 1.7rem;
++  max-width: 360px;
++  flex-direction: column;
++  gap: 5px;
++  text-align: right;
+ }
+ 
+-.recorder-state::before {
+-  width: 11px;
+-  height: 11px;
+-  border-radius: 50%;
+-  background: #64748b;
+-  content: "";
++.last-command span {
++  color: #71839e;
++  font-size: 0.74rem;
++  font-weight: 700;
++  text-transform: uppercase;
+ }
+ 
+-.recorder-state--recording {
+-  color: #6ee7b7;
++.last-command strong {
++  overflow: hidden;
++  color: #aebdd2;
++  font-size: 0.88rem;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-.recorder-state--recording::before {
+-  background: #34d399;
+-  box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.12);
++.telemetry-grid {
++  display: grid;
++  grid-template-columns: repeat(4, 1fr);
++  gap: 14px;
++  margin-top: 14px;
+ }
+ 
+-.controls-card {
+-  margin-top: 16px;
+-  padding: 26px;
++.telemetry-card,
++.panel {
++  border: 1px solid rgba(148, 163, 184, 0.14);
++  border-radius: 18px;
++  background: rgba(13, 26, 45, 0.89);
++  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.17);
+ }
+ 
+-.section-heading {
++.telemetry-card {
+   display: flex;
+-  align-items: flex-start;
++  min-height: 174px;
++  flex-direction: column;
+   justify-content: space-between;
+-  gap: 24px;
+-  margin-bottom: 24px;
++  padding: 22px;
++}
++
++.telemetry-card--cyan {
++  border-color: rgba(103, 232, 249, 0.24);
+ }
+ 
+-.section-heading h2 {
+-  margin-bottom: 6px;
+-  font-size: 1.25rem;
++.telemetry-card--blue {
++  border-color: rgba(96, 165, 250, 0.24);
+ }
+ 
+-.section-heading p,
+-.last-action {
+-  margin-bottom: 0;
++.telemetry-card--violet {
++  border-color: rgba(167, 139, 250, 0.24);
++}
++
++.telemetry-card--green {
++  border-color: rgba(52, 211, 153, 0.24);
++}
++
++.metric-label {
++  color: #9fb0c9;
++  font-size: 0.74rem;
++  font-weight: 800;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++}
++
++.telemetry-value {
++  color: #f8fafc;
++  font-size: clamp(2rem, 4vw, 3rem);
++  letter-spacing: -0.055em;
++}
++
++.telemetry-value span {
++  margin-left: 7px;
++  color: #8295af;
++  font-size: 0.82rem;
++  letter-spacing: 0;
++}
++
++.metric-detail,
++.authority-note,
++.event-limit {
+   color: #71839e;
+-  font-size: 0.86rem;
++  font-size: 0.76rem;
+ }
+ 
+-.last-action {
+-  max-width: 300px;
+-  overflow: hidden;
+-  text-align: right;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
++.panel {
++  margin-top: 14px;
++  padding: 24px;
++}
++
++.section-heading {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 22px;
++  margin-bottom: 22px;
+ }
+ 
+-.button-grid {
++.vehicle-button-grid {
+   display: grid;
+-  grid-template-columns: repeat(4, 1fr);
+-  gap: 12px;
++  grid-template-columns: repeat(5, 1fr);
++  gap: 10px;
+ }
+ 
+-.action-button {
+-  min-height: 50px;
+-  padding: 12px 16px;
++.action-button,
++.clear-button {
+   border: 1px solid transparent;
+-  border-radius: 12px;
+-  color: #e2e8f0;
+-  background: #182a43;
+   cursor: pointer;
+-  font-size: 0.88rem;
+   font-weight: 800;
+-  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
++  transition: transform 150ms ease, border-color 150ms ease, opacity 150ms ease;
++}
++
++.action-button {
++  min-height: 48px;
++  padding: 11px 14px;
++  border-radius: 11px;
++  color: #e2e8f0;
++  background: #182a43;
++  font-size: 0.82rem;
+ }
+ 
+-.action-button:hover:not(:disabled) {
++.action-button:hover:not(:disabled),
++.clear-button:hover:not(:disabled) {
+   transform: translateY(-2px);
+ }
+ 
+@@ -261,76 +308,216 @@ h1 {
+   background: #6ee7b7;
+ }
+ 
+-.action-button--stop {
++.action-button--stop,
++.action-button--warning {
+   border-color: rgba(251, 191, 36, 0.34);
+   color: #fde68a;
+   background: rgba(180, 83, 9, 0.18);
+ }
+ 
++.action-button--secondary {
++  border-color: rgba(96, 165, 250, 0.24);
++  color: #bfdbfe;
++  background: rgba(30, 64, 175, 0.17);
++}
++
+ .action-button--reset {
+-  border-color: rgba(251, 113, 133, 0.3);
+-  color: #fecdd3;
+-  background: rgba(190, 24, 93, 0.14);
++  border-color: rgba(167, 139, 250, 0.3);
++  color: #ddd6fe;
++  background: rgba(109, 40, 217, 0.15);
+ }
+ 
+-.action-button:disabled {
+-  opacity: 0.38;
++.action-button--emergency {
++  border-color: rgba(251, 113, 133, 0.44);
++  color: #fff1f2;
++  background: linear-gradient(135deg, #be123c, #9f1239);
++  box-shadow: 0 8px 24px rgba(190, 18, 60, 0.2);
++}
++
++.action-button:disabled,
++.clear-button:disabled {
++  opacity: 0.34;
+   cursor: not-allowed;
++  transform: none;
++}
++
++.lower-grid {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
++  gap: 14px;
++}
++
++.recorder-panel,
++.event-panel {
++  min-width: 0;
++}
++
++.recorder-pill {
++  padding: 7px 11px;
++  border-radius: 999px;
++  color: #cbd5e1;
++  background: rgba(100, 116, 139, 0.18);
++  font-size: 0.76rem;
++}
++
++.recorder-pill--recording {
++  color: #6ee7b7;
++  background: rgba(16, 185, 129, 0.14);
++}
++
++.recorder-stats {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 10px;
++  margin-bottom: 18px;
++}
++
++.recorder-stats div {
++  display: flex;
++  min-width: 0;
++  flex-direction: column;
++  gap: 4px;
++  padding: 13px;
++  border: 1px solid rgba(148, 163, 184, 0.1);
++  border-radius: 11px;
++  background: rgba(7, 17, 31, 0.45);
++}
++
++.recorder-stats strong {
++  font-size: 1.3rem;
++}
++
++.recorder-stats span {
++  overflow: hidden;
++  color: #71839e;
++  font-size: 0.68rem;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.recorder-buttons {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 9px;
++}
++
++.clear-button {
++  padding: 8px 11px;
++  border-color: rgba(148, 163, 184, 0.18);
++  border-radius: 9px;
++  color: #aebdd2;
++  background: rgba(30, 41, 59, 0.52);
++  font-size: 0.75rem;
++}
++
++.event-list {
++  height: 245px;
++  overflow-y: auto;
++  border: 1px solid rgba(148, 163, 184, 0.1);
++  border-radius: 12px;
++  background: rgba(5, 13, 25, 0.64);
++}
++
++.event-row {
++  display: grid;
++  grid-template-columns: 78px 1fr;
++  gap: 12px;
++  padding: 11px 13px;
++  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
++  font-size: 0.79rem;
++}
++
++.event-row:last-child {
++  border-bottom: 0;
++}
++
++.event-row time {
++  color: #67e8f9;
++  font-variant-numeric: tabular-nums;
++}
++
++.event-row span {
++  color: #c4d0e2;
++  line-height: 1.4;
++}
++
++.empty-log {
++  display: grid;
++  height: 100%;
++  place-items: center;
++  margin: 0;
++  padding: 24px;
++  color: #5f718c;
++  font-size: 0.82rem;
++  text-align: center;
++}
++
++.event-limit {
++  margin: 10px 2px 0;
+ }
+ 
+ .connection-note {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 8px 12px;
+-  padding: 20px 6px 0;
++  padding: 19px 6px 0;
+   color: #5f718c;
+-  font-size: 0.78rem;
++  font-size: 0.75rem;
+ }
+ 
+ .connection-note code {
+   color: #8ca0bc;
+ }
+ 
+-@media (max-width: 800px) {
+-  .dashboard-header,
+-  .section-heading {
+-    flex-direction: column;
++@media (max-width: 980px) {
++  .telemetry-grid {
++    grid-template-columns: 1fr 1fr;
+   }
+ 
+-  .metrics-grid {
+-    grid-template-columns: 1fr 1fr;
++  .vehicle-button-grid {
++    grid-template-columns: repeat(3, 1fr);
+   }
+ 
+-  .metric-card--temperature {
+-    grid-column: 1 / -1;
++  .lower-grid {
++    grid-template-columns: 1fr;
+   }
++}
+ 
+-  .button-grid {
+-    grid-template-columns: 1fr 1fr;
++@media (max-width: 680px) {
++  .app-shell {
++    padding: 26px 14px;
+   }
+ 
+-  .last-action {
++  .dashboard-header,
++  .vehicle-status,
++  .section-heading {
++    align-items: flex-start;
++    flex-direction: column;
++  }
++
++  .last-command {
+     max-width: 100%;
+     text-align: left;
+   }
+-}
+ 
+-@media (max-width: 520px) {
+-  .app-shell {
+-    padding: 26px 14px;
++  .telemetry-grid,
++  .vehicle-button-grid,
++  .recorder-stats,
++  .recorder-buttons {
++    grid-template-columns: 1fr 1fr;
+   }
++}
+ 
+-  .metrics-grid,
+-  .button-grid {
++@media (max-width: 440px) {
++  .telemetry-grid,
++  .vehicle-button-grid,
++  .recorder-stats,
++  .recorder-buttons {
+     grid-template-columns: 1fr;
+   }
+ 
+-  .metric-card--temperature {
+-    grid-column: auto;
+-  }
+-
+-  .metric-card,
+-  .controls-card {
+-    border-radius: 16px;
++  .event-row {
++    grid-template-columns: 1fr;
++    gap: 4px;
+   }
+ }
+diff --git a/web_gui/src/App.jsx b/web_gui/src/App.jsx
+index 389b7de..3c062d7 100644
+--- a/web_gui/src/App.jsx
++++ b/web_gui/src/App.jsx
+@@ -1,234 +1,106 @@
+-import { useEffect, useRef, useState } from 'react';
+-import ROSLIB from 'roslib';
++import ConnectionStatus from './components/ConnectionStatus.jsx';
++import EventLog from './components/EventLog.jsx';
++import RecorderControls from './components/RecorderControls.jsx';
++import TelemetryCard from './components/TelemetryCard.jsx';
++import VehicleControls from './components/VehicleControls.jsx';
++import { useRosBridge } from './hooks/useRosBridge.js';
++import { ROSBRIDGE_URL, ROS_TOPICS } from './services/rosTopics.js';
+ import './App.css';
+ 
+-// Keep these strings identical to gui_interface/topics.py. JavaScript cannot
+-// import the Python constants, so TOPICS.md documents the shared contract.
+-const TOPICS = {
+-  buttonPress: '/button_press',
+-  temperature: '/sensor/temperature',
+-  recorderCommand: '/recorder/command',
+-  recorderStatus: '/recorder/status',
+-};
+-
+-function defaultRosbridgeUrl() {
+-  if (typeof window !== 'undefined' && window.location) {
+-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+-    return `${wsProtocol}//${window.location.host}/rosbridge`;
+-  }
+-  return 'ws://localhost:9090';
++function formatValue(value, decimals = 1) {
++  return value === null ? '--' : value.toFixed(decimals);
+ }
+ 
+-const ROSBRIDGE_URL =
+-  import.meta.env.VITE_ROSBRIDGE_URL || defaultRosbridgeUrl();
+-
+-function ConnectionBadge({ status }) {
+-  const labels = {
+-    connected: 'Connected to ROS 2',
+-    disconnected: 'Disconnected',
+-    error: 'Connection error',
+-  };
+-
+-  return (
+-    <span className={`status-badge status-badge--${status}`} role="status">
+-      <span className="status-dot" aria-hidden="true" />
+-      {labels[status]}
+-    </span>
+-  );
++function displayStatus(status) {
++  return status === 'UNKNOWN' ? 'Waiting for ROS' : status.replaceAll('_', ' ');
+ }
+ 
+ export default function App() {
+-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
+-  const [messageCount, setMessageCount] = useState(0);
+-  const [temperature, setTemperature] = useState(null);
+-  const [sampleCount, setSampleCount] = useState(0);
+-  const [recorderState, setRecorderState] = useState('idle');
+-  const [recordedCount, setRecordedCount] = useState(0);
+-  const [lastAction, setLastAction] = useState('Waiting for your first command');
+-
+-  const buttonTopicRef = useRef(null);
+-  const commandTopicRef = useRef(null);
+-  const messageCountRef = useRef(0);
+-
+-  useEffect(() => {
+-    const ros = new ROSLIB.Ros({ url: ROSBRIDGE_URL });
+-    let reconnectTimer = null;
+-    let componentIsMounted = true;
+-
+-    ros.on('connection', () => {
+-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+-      setConnectionStatus('connected');
+-    });
+-    ros.on('error', () => setConnectionStatus('error'));
+-    ros.on('close', () => {
+-      if (!componentIsMounted) return;
+-      setConnectionStatus('disconnected');
+-      reconnectTimer = window.setTimeout(() => ros.connect(ROSBRIDGE_URL), 2000);
+-    });
+-
+-    const buttonTopic = new ROSLIB.Topic({
+-      ros,
+-      name: TOPICS.buttonPress,
+-      messageType: 'std_msgs/String',
+-    });
+-    const commandTopic = new ROSLIB.Topic({
+-      ros,
+-      name: TOPICS.recorderCommand,
+-      messageType: 'std_msgs/String',
+-    });
+-    const temperatureTopic = new ROSLIB.Topic({
+-      ros,
+-      name: TOPICS.temperature,
+-      messageType: 'std_msgs/Float32',
+-    });
+-    const recorderStatusTopic = new ROSLIB.Topic({
+-      ros,
+-      name: TOPICS.recorderStatus,
+-      messageType: 'std_msgs/String',
+-    });
+-
+-    buttonTopicRef.current = buttonTopic;
+-    commandTopicRef.current = commandTopic;
+-
+-    temperatureTopic.subscribe((message) => {
+-      setTemperature(Number(message.data));
+-      setSampleCount((current) => current + 1);
+-    });
+-
+-    recorderStatusTopic.subscribe((message) => {
+-      const [nextState, count = '0'] = String(message.data).split(':');
+-      setRecorderState(nextState === 'recording' ? 'recording' : 'idle');
+-      setRecordedCount(Number.parseInt(count, 10) || 0);
+-    });
+-
+-    return () => {
+-      componentIsMounted = false;
+-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+-      temperatureTopic.unsubscribe();
+-      recorderStatusTopic.unsubscribe();
+-      buttonTopicRef.current = null;
+-      commandTopicRef.current = null;
+-      ros.close();
+-    };
+-  }, []);
+-
+-  const publishButtonEvent = (label) => {
+-    if (connectionStatus !== 'connected' || !buttonTopicRef.current) return;
+-
+-    const nextCount = messageCountRef.current + 1;
+-    messageCountRef.current = nextCount;
+-    setMessageCount(nextCount);
+-    buttonTopicRef.current.publish(
+-      new ROSLIB.Message({
+-        data: `${label} from React GUI. Count = ${nextCount}`,
+-      }),
+-    );
+-    setLastAction(label);
+-  };
+-
+-  const sendRecorderCommand = (command, label) => {
+-    if (connectionStatus !== 'connected' || !commandTopicRef.current) return;
+-
+-    publishButtonEvent(label);
+-    commandTopicRef.current.publish(new ROSLIB.Message({ data: command }));
+-  };
+-
+-  const isConnected = connectionStatus === 'connected';
+-  const temperatureText =
+-    temperature === null || Number.isNaN(temperature)
+-      ? '--.--'
+-      : temperature.toFixed(2);
++  const ros = useRosBridge();
++  const connected = ros.connectionStatus === 'connected';
++  const statusClass = ros.vehicleStatus.toLowerCase().replaceAll('_', '-');
+ 
+   return (
+     <main className="app-shell">
+-      <section className="dashboard" aria-labelledby="page-title">
++      <div className="dashboard">
+         <header className="dashboard-header">
+           <div>
+-            <p className="eyebrow">Browser ↔ rosbridge ↔ ROS 2</p>
+-            <h1 id="page-title">ROS 2 Sensor Console</h1>
++            <p className="eyebrow">Simulated self-driving car</p>
++            <h1>ROS 2 Vehicle Console</h1>
+             <p className="subtitle">
+-              Publish commands, watch a live topic, and record readings to CSV.
++              Real topic flow from React controls to an authoritative ROS 2 simulator.
+             </p>
+           </div>
+-          <ConnectionBadge status={connectionStatus} />
++          <ConnectionStatus status={ros.connectionStatus} />
+         </header>
+ 
+-        <div className="metrics-grid">
+-          <article className="metric-card metric-card--temperature">
+-            <span className="metric-label">Live temperature</span>
+-            <div className="temperature-value">
+-              {temperatureText}<span>°C</span>
+-            </div>
+-            <span className="metric-detail">
+-              {sampleCount.toLocaleString()} samples received
+-            </span>
+-          </article>
+-
+-          <article className="metric-card">
+-            <span className="metric-label">CSV recorder</span>
+-            <strong className={`recorder-state recorder-state--${recorderState}`}>
+-              {recorderState === 'recording' ? 'Recording' : 'Idle'}
+-            </strong>
+-            <span className="metric-detail">
+-              {recordedCount.toLocaleString()} rows this session
+-            </span>
+-          </article>
+-
+-          <article className="metric-card">
+-            <span className="metric-label">GUI events sent</span>
+-            <strong className="event-count">{messageCount}</strong>
+-            <span className="metric-detail">Topic: {TOPICS.buttonPress}</span>
+-          </article>
+-        </div>
+-
+-        <section className="controls-card" aria-labelledby="controls-title">
+-          <div className="section-heading">
+-            <div>
+-              <h2 id="controls-title">Controls</h2>
+-              <p>Each control is also logged by the button listener node.</p>
+-            </div>
+-            <span className="last-action">Last: {lastAction}</span>
++        <section className={`vehicle-status vehicle-status--${statusClass}`}>
++          <div>
++            <span className="metric-label">ROS-confirmed vehicle state</span>
++            <strong>{displayStatus(ros.vehicleStatus)}</strong>
+           </div>
+-
+-          <div className="button-grid">
+-            <button
+-              className="action-button action-button--primary"
+-              onClick={() => publishButtonEvent('Test message sent')}
+-              disabled={!isConnected}
+-            >
+-              Send test message
+-            </button>
+-            <button
+-              className="action-button action-button--start"
+-              onClick={() => sendRecorderCommand('start', 'Recording started')}
+-              disabled={!isConnected || recorderState === 'recording'}
+-            >
+-              Start recording
+-            </button>
+-            <button
+-              className="action-button action-button--stop"
+-              onClick={() => sendRecorderCommand('stop', 'Recording stopped')}
+-              disabled={!isConnected || recorderState !== 'recording'}
+-            >
+-              Stop recording
+-            </button>
+-            <button
+-              className="action-button action-button--reset"
+-              onClick={() => sendRecorderCommand('reset', 'CSV reset')}
+-              disabled={!isConnected}
+-            >
+-              Reset CSV
+-            </button>
++          <div className="last-command">
++            <span>Last GUI command</span>
++            <strong>{ros.lastAction}</strong>
+           </div>
+         </section>
+ 
++        <section className="telemetry-grid" aria-label="Live vehicle telemetry">
++          <TelemetryCard
++            label="Temperature"
++            value={formatValue(ros.telemetry.temperature, 2)}
++            unit="°C"
++            detail={ROS_TOPICS.temperature.name}
++            accent="cyan"
++          />
++          <TelemetryCard
++            label="Speed"
++            value={formatValue(ros.telemetry.speed)}
++            unit="km/h"
++            detail={ROS_TOPICS.sdcSpeed.name}
++            accent="blue"
++          />
++          <TelemetryCard
++            label="Steering"
++            value={formatValue(ros.telemetry.steering)}
++            unit="°"
++            detail={ROS_TOPICS.sdcSteering.name}
++            accent="violet"
++          />
++          <TelemetryCard
++            label="Battery"
++            value={formatValue(ros.telemetry.battery)}
++            unit="%"
++            detail={ROS_TOPICS.sdcBattery.name}
++            accent="green"
++          />
++        </section>
++
++        <VehicleControls
++          connected={connected}
++          status={ros.vehicleStatus}
++          onCommand={ros.sendVehicleCommand}
++        />
++
++        <div className="lower-grid">
++          <RecorderControls
++            connected={connected}
++            recorderState={ros.recorderState}
++            recordedCount={ros.recordedCount}
++            messageCount={ros.messageCount}
++            sampleCount={ros.sampleCount}
++            onTestMessage={ros.sendTestMessage}
++            onRecorderCommand={ros.sendRecorderCommand}
++          />
++          <EventLog events={ros.events} onClear={ros.clearEvents} />
++        </div>
++
+         <footer className="connection-note">
+-          <span>rosbridge</span>
+-          <code>{ROSBRIDGE_URL}</code>
+-          <span>sensor topic</span>
+-          <code>{TOPICS.temperature}</code>
++          <span>rosbridge</span><code>{ROSBRIDGE_URL}</code>
++          <span>command topic</span><code>{ROS_TOPICS.sdcCommand.name}</code>
++          <span>events topic</span><code>{ROS_TOPICS.sdcEvents.name}</code>
+         </footer>
+-      </section>
++      </div>
+     </main>
+   );
+ }
+diff --git a/web_gui/src/components/ConnectionStatus.jsx b/web_gui/src/components/ConnectionStatus.jsx
+new file mode 100644
+index 0000000..82781b5
+--- /dev/null
++++ b/web_gui/src/components/ConnectionStatus.jsx
+@@ -0,0 +1,14 @@
++export default function ConnectionStatus({ status }) {
++  const labels = {
++    connected: 'Connected to ROS 2',
++    disconnected: 'Disconnected',
++    error: 'Connection error',
++  };
++
++  return (
++    <span className={`status-badge status-badge--${status}`} role="status">
++      <span className="status-dot" aria-hidden="true" />
++      {labels[status] || labels.disconnected}
++    </span>
++  );
++}
+diff --git a/web_gui/src/components/EventLog.jsx b/web_gui/src/components/EventLog.jsx
+new file mode 100644
+index 0000000..c26ab1c
+--- /dev/null
++++ b/web_gui/src/components/EventLog.jsx
+@@ -0,0 +1,29 @@
++export default function EventLog({ events, onClear }) {
++  return (
++    <section className="panel event-panel" aria-labelledby="event-log-title">
++      <div className="section-heading">
++        <div>
++          <p className="section-kicker">ROS event stream</p>
++          <h2 id="event-log-title">Live event log</h2>
++        </div>
++        <button className="clear-button" onClick={onClear} disabled={!events.length}>
++          Clear logs
++        </button>
++      </div>
++
++      <div className="event-list" aria-live="polite">
++        {events.length === 0 ? (
++          <p className="empty-log">Vehicle and recorder events will appear here.</p>
++        ) : (
++          events.map((event) => (
++            <div className="event-row" key={event.id}>
++              <time>{event.timestamp}</time>
++              <span>{event.message}</span>
++            </div>
++          ))
++        )}
++      </div>
++      <p className="event-limit">Showing the latest {events.length} of at most 50 events.</p>
++    </section>
++  );
++}
+diff --git a/web_gui/src/components/RecorderControls.jsx b/web_gui/src/components/RecorderControls.jsx
+new file mode 100644
+index 0000000..56759cc
+--- /dev/null
++++ b/web_gui/src/components/RecorderControls.jsx
+@@ -0,0 +1,62 @@
++export default function RecorderControls({
++  connected,
++  recorderState,
++  recordedCount,
++  messageCount,
++  sampleCount,
++  onTestMessage,
++  onRecorderCommand,
++}) {
++  const isRecording = recorderState === 'recording';
++
++  return (
++    <section className="panel recorder-panel" aria-labelledby="recorder-title">
++      <div className="section-heading">
++        <div>
++          <p className="section-kicker">Telemetry CSV</p>
++          <h2 id="recorder-title">Recording</h2>
++        </div>
++        <strong className={`recorder-pill recorder-pill--${recorderState}`}>
++          {isRecording ? 'Recording' : 'Idle'}
++        </strong>
++      </div>
++
++      <div className="recorder-stats">
++        <div><strong>{recordedCount.toLocaleString()}</strong><span>CSV rows</span></div>
++        <div><strong>{sampleCount.toLocaleString()}</strong><span>Temperature samples</span></div>
++        <div><strong>{messageCount.toLocaleString()}</strong><span>Test events</span></div>
++      </div>
++
++      <div className="recorder-buttons">
++        <button
++          className="action-button action-button--primary"
++          disabled={!connected}
++          onClick={onTestMessage}
++        >
++          Send test message
++        </button>
++        <button
++          className="action-button action-button--start"
++          disabled={!connected || isRecording}
++          onClick={() => onRecorderCommand('start', 'Recording started')}
++        >
++          Start recording
++        </button>
++        <button
++          className="action-button action-button--stop"
++          disabled={!connected || !isRecording}
++          onClick={() => onRecorderCommand('stop', 'Recording stopped')}
++        >
++          Stop recording
++        </button>
++        <button
++          className="action-button action-button--reset"
++          disabled={!connected}
++          onClick={() => onRecorderCommand('reset', 'CSV reset')}
++        >
++          Reset CSV
++        </button>
++      </div>
++    </section>
++  );
++}
+diff --git a/web_gui/src/components/TelemetryCard.jsx b/web_gui/src/components/TelemetryCard.jsx
+new file mode 100644
+index 0000000..9e6b6bb
+--- /dev/null
++++ b/web_gui/src/components/TelemetryCard.jsx
+@@ -0,0 +1,12 @@
++export default function TelemetryCard({ label, value, unit, detail, accent }) {
++  return (
++    <article className={`telemetry-card telemetry-card--${accent}`}>
++      <span className="metric-label">{label}</span>
++      <strong className="telemetry-value">
++        {value}
++        <span>{unit}</span>
++      </strong>
++      <span className="metric-detail">{detail}</span>
++    </article>
++  );
++}
+diff --git a/web_gui/src/components/VehicleControls.jsx b/web_gui/src/components/VehicleControls.jsx
+new file mode 100644
+index 0000000..fdb488b
+--- /dev/null
++++ b/web_gui/src/components/VehicleControls.jsx
+@@ -0,0 +1,62 @@
++const CONTROLS = [
++  { command: 'START_VEHICLE', label: 'Start vehicle', kind: 'start' },
++  { command: 'STOP_VEHICLE', label: 'Stop vehicle', kind: 'stop' },
++  { command: 'ACCELERATE', label: 'Accelerate', kind: 'primary' },
++  { command: 'BRAKE', label: 'Brake', kind: 'warning' },
++  { command: 'STEER_LEFT', label: 'Steer left', kind: 'secondary' },
++  { command: 'STEER_RIGHT', label: 'Steer right', kind: 'secondary' },
++  { command: 'CENTER_STEERING', label: 'Center steering', kind: 'secondary' },
++];
++
++function isControlDisabled(command, connected, status) {
++  if (!connected) return true;
++  if (status === 'EMERGENCY_STOP') return true;
++
++  if (command === 'START_VEHICLE') {
++    return !['IDLE', 'STOPPED'].includes(status);
++  }
++  return status !== 'RUNNING';
++}
++
++export default function VehicleControls({ connected, status, onCommand }) {
++  const emergencyActive = status === 'EMERGENCY_STOP';
++
++  return (
++    <section className="panel controls-panel" aria-labelledby="vehicle-controls-title">
++      <div className="section-heading">
++        <div>
++          <p className="section-kicker">React → ROS 2</p>
++          <h2 id="vehicle-controls-title">Vehicle controls</h2>
++        </div>
++        <span className="authority-note">State confirmed by ROS</span>
++      </div>
++
++      <div className="vehicle-button-grid">
++        {CONTROLS.map((control) => (
++          <button
++            key={control.command}
++            className={`action-button action-button--${control.kind}`}
++            disabled={isControlDisabled(control.command, connected, status)}
++            onClick={() => onCommand(control.command)}
++          >
++            {control.label}
++          </button>
++        ))}
++        <button
++          className="action-button action-button--emergency"
++          disabled={!connected || emergencyActive}
++          onClick={() => onCommand('EMERGENCY_STOP')}
++        >
++          Emergency stop
++        </button>
++        <button
++          className="action-button action-button--reset"
++          disabled={!connected}
++          onClick={() => onCommand('RESET_VEHICLE')}
++        >
++          Reset vehicle
++        </button>
++      </div>
++    </section>
++  );
++}
+diff --git a/web_gui/src/hooks/useRosBridge.js b/web_gui/src/hooks/useRosBridge.js
+new file mode 100644
+index 0000000..5db15c5
+--- /dev/null
++++ b/web_gui/src/hooks/useRosBridge.js
+@@ -0,0 +1,202 @@
++import { useCallback, useEffect, useRef, useState } from 'react';
++import ROSLIB from 'roslib';
++import { createRosTopics, ROSBRIDGE_URL } from '../services/rosTopics.js';
++
++const INITIAL_TELEMETRY = {
++  temperature: null,
++  speed: null,
++  steering: null,
++  battery: null,
++};
++
++function finiteNumber(value) {
++  const number = Number(value);
++  return Number.isFinite(number) ? number : null;
++}
++
++export function useRosBridge() {
++  const [connectionStatus, setConnectionStatus] = useState('disconnected');
++  const [telemetry, setTelemetry] = useState(INITIAL_TELEMETRY);
++  const [vehicleStatus, setVehicleStatus] = useState('UNKNOWN');
++  const [recorderState, setRecorderState] = useState('idle');
++  const [recordedCount, setRecordedCount] = useState(0);
++  const [sampleCount, setSampleCount] = useState(0);
++  const [messageCount, setMessageCount] = useState(0);
++  const [events, setEvents] = useState([]);
++  const [lastAction, setLastAction] = useState('Waiting for your first command');
++
++  const rosRef = useRef(null);
++  const topicsRef = useRef(null);
++  const messageCountRef = useRef(0);
++  const eventIdRef = useRef(0);
++
++  useEffect(() => {
++    const ros = new ROSLIB.Ros();
++    const topics = createRosTopics(ros);
++    let componentIsMounted = true;
++    let reconnectTimer = null;
++
++    rosRef.current = ros;
++    topicsRef.current = topics;
++
++    const updateTelemetry = (key, value) => {
++      const number = finiteNumber(value);
++      if (number === null) return;
++      setTelemetry((current) => ({ ...current, [key]: number }));
++    };
++
++    const onTemperature = (message) => {
++      updateTelemetry('temperature', message.data);
++      setSampleCount((current) => current + 1);
++    };
++    const onSpeed = (message) => updateTelemetry('speed', message.data);
++    const onSteering = (message) => updateTelemetry('steering', message.data);
++    const onBattery = (message) => updateTelemetry('battery', message.data);
++    const onVehicleStatus = (message) => {
++      const nextStatus = String(message.data || '').trim();
++      if (nextStatus) setVehicleStatus(nextStatus);
++    };
++    const onRecorderStatus = (message) => {
++      const [nextState, count = '0'] = String(message.data).split(':');
++      setRecorderState(nextState === 'recording' ? 'recording' : 'idle');
++      setRecordedCount(Number.parseInt(count, 10) || 0);
++    };
++    const onSdcEvent = (message) => {
++      const text = String(message.data || '').trim();
++      if (!text) return;
++
++      eventIdRef.current += 1;
++      const entry = {
++        id: eventIdRef.current,
++        timestamp: new Date().toLocaleTimeString([], { hour12: false }),
++        message: text,
++      };
++      setEvents((current) => [entry, ...current].slice(0, 50));
++    };
++
++    topics.temperature.subscribe(onTemperature);
++    topics.sdcSpeed.subscribe(onSpeed);
++    topics.sdcSteering.subscribe(onSteering);
++    topics.sdcBattery.subscribe(onBattery);
++    topics.sdcStatus.subscribe(onVehicleStatus);
++    topics.recorderStatus.subscribe(onRecorderStatus);
++    topics.sdcEvents.subscribe(onSdcEvent);
++
++    const onConnection = () => {
++      if (reconnectTimer) window.clearTimeout(reconnectTimer);
++      reconnectTimer = null;
++      setConnectionStatus('connected');
++    };
++    const onError = () => {
++      if (componentIsMounted) setConnectionStatus('error');
++    };
++    const onClose = () => {
++      if (!componentIsMounted) return;
++      setConnectionStatus('disconnected');
++      if (!reconnectTimer) {
++        reconnectTimer = window.setTimeout(() => {
++          reconnectTimer = null;
++          if (componentIsMounted) ros.connect(ROSBRIDGE_URL);
++        }, 2000);
++      }
++    };
++
++    ros.on('connection', onConnection);
++    ros.on('error', onError);
++    ros.on('close', onClose);
++    ros.connect(ROSBRIDGE_URL);
++
++    return () => {
++      componentIsMounted = false;
++      if (reconnectTimer) window.clearTimeout(reconnectTimer);
++
++      topics.temperature.unsubscribe(onTemperature);
++      topics.sdcSpeed.unsubscribe(onSpeed);
++      topics.sdcSteering.unsubscribe(onSteering);
++      topics.sdcBattery.unsubscribe(onBattery);
++      topics.sdcStatus.unsubscribe(onVehicleStatus);
++      topics.recorderStatus.unsubscribe(onRecorderStatus);
++      topics.sdcEvents.unsubscribe(onSdcEvent);
++
++      for (const key of ['buttonPress', 'recorderCommand', 'sdcCommand']) {
++        if (topics[key].isAdvertised) topics[key].unadvertise();
++      }
++
++      ros.off('connection', onConnection);
++      ros.off('error', onError);
++      ros.off('close', onClose);
++      if (ros.isConnected) ros.close();
++      rosRef.current = null;
++      topicsRef.current = null;
++    };
++  }, []);
++
++  const publishString = useCallback((topicKey, data) => {
++    const ros = rosRef.current;
++    const topic = topicsRef.current?.[topicKey];
++    if (!ros?.isConnected || !topic) return false;
++
++    topic.publish(new ROSLIB.Message({ data }));
++    return true;
++  }, []);
++
++  const publishButtonEvent = useCallback(
++    (label) => {
++      const nextCount = messageCountRef.current + 1;
++      const sent = publishString(
++        'buttonPress',
++        `${label} from React GUI. Count = ${nextCount}`,
++      );
++      if (!sent) return false;
++
++      messageCountRef.current = nextCount;
++      setMessageCount(nextCount);
++      setLastAction(label);
++      return true;
++    },
++    [publishString],
++  );
++
++  const sendTestMessage = useCallback(
++    () => publishButtonEvent('Test message sent'),
++    [publishButtonEvent],
++  );
++
++  const sendRecorderCommand = useCallback(
++    (command, label) => {
++      const sent = publishString('recorderCommand', command);
++      if (!sent) return false;
++      publishButtonEvent(label);
++      setLastAction(label);
++      return true;
++    },
++    [publishButtonEvent, publishString],
++  );
++
++  const sendVehicleCommand = useCallback(
++    (command) => {
++      const sent = publishString('sdcCommand', command);
++      if (sent) setLastAction(command.replaceAll('_', ' '));
++      return sent;
++    },
++    [publishString],
++  );
++
++  const clearEvents = useCallback(() => setEvents([]), []);
++
++  return {
++    connectionStatus,
++    telemetry,
++    vehicleStatus,
++    recorderState,
++    recordedCount,
++    sampleCount,
++    messageCount,
++    events,
++    lastAction,
++    sendTestMessage,
++    sendRecorderCommand,
++    sendVehicleCommand,
++    clearEvents,
++  };
++}
+diff --git a/web_gui/src/main.jsx b/web_gui/src/main.jsx
+index 2fa9fa5..d9e71c5 100644
+--- a/web_gui/src/main.jsx
++++ b/web_gui/src/main.jsx
+@@ -1,11 +1,6 @@
+ // Entry point for the React app. Vite loads this file via index.html.
+-import React from 'react';
+ import ReactDOM from 'react-dom/client';
+ import App from './App.jsx';
+ 
+ // Mount the <App /> component into the #root div from index.html.
+-ReactDOM.createRoot(document.getElementById('root')).render(
+-  <React.StrictMode>
+-    <App />
+-  </React.StrictMode>
+-);
++ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+diff --git a/web_gui/src/services/rosTopics.js b/web_gui/src/services/rosTopics.js
+new file mode 100644
+index 0000000..5a435d5
+--- /dev/null
++++ b/web_gui/src/services/rosTopics.js
+@@ -0,0 +1,34 @@
++import ROSLIB from 'roslib';
++
++export const ROS_TOPICS = {
++  buttonPress: { name: '/button_press', messageType: 'std_msgs/String' },
++  temperature: { name: '/sensor/temperature', messageType: 'std_msgs/Float32' },
++  recorderCommand: { name: '/recorder/command', messageType: 'std_msgs/String' },
++  recorderStatus: { name: '/recorder/status', messageType: 'std_msgs/String' },
++  sdcCommand: { name: '/sdc/command', messageType: 'std_msgs/String' },
++  sdcStatus: { name: '/sdc/status', messageType: 'std_msgs/String' },
++  sdcSpeed: { name: '/sdc/speed', messageType: 'std_msgs/Float32' },
++  sdcSteering: { name: '/sdc/steering', messageType: 'std_msgs/Float32' },
++  sdcBattery: { name: '/sdc/battery', messageType: 'std_msgs/Float32' },
++  sdcEvents: { name: '/sdc/events', messageType: 'std_msgs/String' },
++};
++
++export function getDefaultRosbridgeUrl() {
++  if (typeof window !== 'undefined' && window.location) {
++    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
++    return `${wsProtocol}//${window.location.host}/rosbridge`;
++  }
++  return 'ws://localhost:9090';
++}
++
++export const ROSBRIDGE_URL =
++  import.meta.env.VITE_ROSBRIDGE_URL || getDefaultRosbridgeUrl();
++
++export function createRosTopics(ros) {
++  return Object.fromEntries(
++    Object.entries(ROS_TOPICS).map(([key, config]) => [
++      key,
++      new ROSLIB.Topic({ ros, ...config }),
++    ]),
++  );
++}

@@ -27,6 +27,28 @@ React GUI  <--roslibjs/WebSocket-->  rosbridge_server (:9090)  <-->  ROS 2 topic
 | `/sensor/temperature` | `std_msgs/Float32` | `temperature_publisher` (`student_nodes_pkg`) | React GUI and `temperature_recorder` | Fake Celsius reading published at 4 Hz. |
 | `/recorder/command` | `std_msgs/String` | React GUI | `temperature_recorder` | Commands: `start`, `stop`, or `reset`. |
 | `/recorder/status` | `std_msgs/String` | `temperature_recorder` | React GUI | State and row count in `state:count` format. |
+| `/sdc/command` | `std_msgs/String` | React GUI | `simulated_vehicle` | Exact vehicle command strings listed below. |
+| `/sdc/status` | `std_msgs/String` | `simulated_vehicle` | React GUI and `temperature_recorder` | Authoritative state: `IDLE`, `RUNNING`, `STOPPED`, or `EMERGENCY_STOP`. |
+| `/sdc/speed` | `std_msgs/Float32` | `simulated_vehicle` | React GUI and `temperature_recorder` | Smooth simulated speed from 0–80 km/h. |
+| `/sdc/steering` | `std_msgs/Float32` | `simulated_vehicle` | React GUI and `temperature_recorder` | Smooth steering angle from -30° to +30°. |
+| `/sdc/battery` | `std_msgs/Float32` | `simulated_vehicle` | React GUI and `temperature_recorder` | Battery percentage from 0–100%. |
+| `/sdc/events` | `std_msgs/String` | `simulated_vehicle` and `temperature_recorder` | React GUI | Human-readable state, control, and recorder events. |
+
+## Vehicle commands
+
+Publish one of these exact strings to `/sdc/command`:
+
+| Command | Effect |
+|---------|--------|
+| `START_VEHICLE` | Move from `IDLE` or `STOPPED` to `RUNNING`. |
+| `STOP_VEHICLE` | Smoothly stop, center steering, then publish `STOPPED`. |
+| `ACCELERATE` | Raise the target speed by 10 km/h, up to 80 km/h. |
+| `BRAKE` | Lower the target speed by 10 km/h. |
+| `STEER_LEFT` | Lower the target steering angle by 10°, down to -30°. |
+| `STEER_RIGHT` | Raise the target steering angle by 10°, up to +30°. |
+| `CENTER_STEERING` | Smoothly return steering to 0°. |
+| `EMERGENCY_STOP` | Lock ordinary controls and brake rapidly. |
+| `RESET_VEHICLE` | Return to `IDLE` with zero speed and centered steering. |
 
 ## Adding a new topic — checklist
 

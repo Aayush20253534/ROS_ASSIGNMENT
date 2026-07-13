@@ -43,6 +43,29 @@ TOPIC_RECORDER_STATUS = '/recorder/status'
 
 
 # ---------------------------------------------------------------------------
+# Simulated self-driving-car dashboard topics.
+# ---------------------------------------------------------------------------
+
+# React vehicle controls -> simulated_vehicle.
+# Message type: std_msgs/String
+TOPIC_SDC_COMMAND = '/sdc/command'
+
+# Authoritative vehicle state -> React + recorder.
+# Message type: std_msgs/String
+TOPIC_SDC_STATUS = '/sdc/status'
+
+# Simulated vehicle telemetry -> React + recorder.
+# Message type: std_msgs/Float32
+TOPIC_SDC_SPEED = '/sdc/speed'
+TOPIC_SDC_STEERING = '/sdc/steering'
+TOPIC_SDC_BATTERY = '/sdc/battery'
+
+# Human-readable vehicle and recorder events -> React.
+# Message type: std_msgs/String
+TOPIC_SDC_EVENTS = '/sdc/events'
+
+
+# ---------------------------------------------------------------------------
 # Add YOUR topics below. Example (uncomment and adapt):
 #
 #   # A node publishes robot status text; the GUI subscribes to show it.

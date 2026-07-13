@@ -1,5 +1,5 @@
 # Docker Compose wires together the two containers students need:
-#   1) ros2 -> runs ROS 2 Humble, rosbridge, the listener, sensor, and recorder
+#   1) ros2 -> runs rosbridge, listener, sensor, recorder, and vehicle simulator
 #   2) web  -> runs the React + Vite dev server (port 5173)
 #
 # Students never install ROS, Node, or rosbridge locally. Everything lives here.
@@ -24,7 +24,7 @@ services:
     #   2. build the workspace with colcon
     #   3. source the freshly built workspace
     #   4. start rosbridge in the BACKGROUND (note the trailing &)
-    #   5. start the fake sensor + CSV recorder in the BACKGROUND
+    #   5. start the sensor, recorder, and vehicle simulator in the BACKGROUND
     #   6. start our button_listener node in the FOREGROUND (keeps container alive)
     #
     # Backgrounding rosbridge with `&` lets both processes run from one command.
@@ -38,6 +38,7 @@ services:
       (ros2 launch rosbridge_server rosbridge_websocket_launch.xml &) &&
       (ros2 run student_nodes_pkg temperature_publisher &) &&
       (ros2 run student_nodes_pkg temperature_recorder &) &&
+      (ros2 run student_nodes_pkg simulated_vehicle &) &&
       sleep 5 &&
       ros2 run button_listener_pkg button_listener"
 

@@ -34,6 +34,7 @@ setup(
             #   ros2 run student_nodes_pkg temperature_recorder
             'temperature_publisher = student_nodes_pkg.temperature_publisher:main',
             'temperature_recorder = student_nodes_pkg.temperature_recorder:main',
+            'simulated_vehicle = student_nodes_pkg.simulated_vehicle_node:main',
 
             # ADD YOUR OWN NODES BELOW, one per line. For example:
             #   'my_node = student_nodes_pkg.my_node:main',
